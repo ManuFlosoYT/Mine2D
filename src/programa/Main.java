@@ -1,4 +1,4 @@
-package Programa;
+package programa;
 
 import javax.swing.JFrame;
 import java.awt.BorderLayout;
@@ -8,15 +8,15 @@ import java.awt.event.WindowEvent;
 public class Main extends JFrame {
 
     private static final String TITULO = "Mine2D";
-    private static final int ANCHO = 1200;
-    private static final int ALTO = 800;
+    public static final int ANCHO = 1200;
+    public static final int ALTO = 800;
 
     public Main() {
         init();
     }
 
     private void init() {
-        
+
         // Definir propiedades de la ventana
         setTitle(TITULO);
         setSize(ANCHO, ALTO);
@@ -29,6 +29,8 @@ public class Main extends JFrame {
         setLayout(new BorderLayout());
         Panel panel = new Panel();
         add(panel);
+
+        requestFocus();
 
         // Agregar listeners para manejar el inicio y parada del programa
         addWindowListener(new WindowAdapter() {
