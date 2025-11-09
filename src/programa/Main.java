@@ -47,7 +47,7 @@ public class Main extends JFrame {
 
     }
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         // Crear y mostrar la ventana principal
         Main main = new Main();
         main.setVisible(true);

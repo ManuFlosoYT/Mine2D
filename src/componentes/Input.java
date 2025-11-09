@@ -1,12 +1,17 @@
 package componentes;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
 public class Input {
 
-    private boolean key_w;
-    private boolean key_a;
-    private boolean key_s;
-    private boolean key_d;
-    private boolean key_space;
+    private volatile boolean key_w;
+    private volatile boolean key_a;
+    private volatile boolean key_s;
+    private volatile boolean key_d;
+    private volatile boolean key_space;
+
+    // Latch para detectar el flanco de pulsación de SPACE (thread-safe)
+    private final AtomicBoolean spacePressedOnce = new AtomicBoolean(false);
 
     public boolean isKeyW() {
         return key_w;
@@ -48,4 +53,17 @@ public class Input {
         this.key_space = key_space;
     }
 
+    // --- Nuevos helpers para SPACE ---
+    public void pressSpace() {
+        this.key_space = true;
+        this.spacePressedOnce.set(true);
+    }
+
+    public void releaseSpace() {
+        this.key_space = false;
+    }
+
+    public boolean consumeSpacePressedOnce() {
+        return spacePressedOnce.getAndSet(false);
+    }
 }
