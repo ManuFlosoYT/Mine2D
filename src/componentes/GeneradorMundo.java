@@ -15,11 +15,17 @@ public class GeneradorMundo {
 
         for (int y = 0; y < alto; y++) {
             for (int x = 0; x < ancho; x++) {
-                if (y >= 64) { // parte inferior sólida
-                    mundo[y][x] = new BasicBlock("stone", new Punto(offsetX + x * size, offsetY + y * size));
-                } else { // a partir de 64 hacia arriba: aire
-                    mundo[y][x] = null;
+                BasicBlock bloque = null;
+                if (y == 64) {
+                    bloque = new BasicBlock("grass_block", new Punto(offsetX + x * size, offsetY + y * size));
+                } else if (y >= 65 && y <= 67) {
+                    bloque = new BasicBlock("dirt", new Punto(offsetX + x * size, offsetY + y * size));
+                } else if (y >= 68) {
+                    bloque = new BasicBlock("stone", new Punto(offsetX + x * size, offsetY + y * size));
+                } else {
+                    bloque = null; // aire
                 }
+                mundo[y][x] = bloque;
             }
         }
         return mundo;

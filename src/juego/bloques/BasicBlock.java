@@ -16,11 +16,13 @@ public class BasicBlock {
     private final Image sprite;
     private final Punto p;
     private final String blockID;
+    private final double dureza; // segundos necesarios de mantener click para romper
 
     public BasicBlock(String blockID, Punto p) {
         this.blockID = blockID;
         this.sprite = cargarImagen("assets/blocks/" + blockID + ".png");
         this.p = p;
+        this.dureza = calcularDureza(blockID);
     }
 
     public static double getSize() {
@@ -53,6 +55,18 @@ public class BasicBlock {
 
     public String getBlockID() {
         return blockID;
+    }
+
+    public double getDureza() { return dureza; }
+
+    private double calcularDureza(String id) {
+        // Valores ejemplo; ajustar según diseño
+        return switch (id) {
+            case "stone" -> 1.2; // 1.5 segundos de mantener click
+            case "dirt" -> 0.8;
+            case "grass_block" -> 0.85;
+            default -> 1.0; // valor por defecto
+        };
     }
 
     // --- Nuevos helpers de colisión ---

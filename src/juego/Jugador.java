@@ -14,7 +14,10 @@ import java.net.URL;
 import java.util.List;
 
 public class Jugador {
-    private static final double SIZE = 64; // tamaño del sprite en píxeles
+    // Un bloque mide 64px (consultamos BasicBlock.getSize())
+    private static final double BLOCK_SIZE = BasicBlock.getSize();
+    private static final double WIDTH = BLOCK_SIZE * 0.8;      // 0.8 bloques de ancho
+    private static final double HEIGHT = BLOCK_SIZE * 1.8;     // 1.8 bloques de alto
     private final Image sprite;
 
     private double x;
@@ -62,8 +65,8 @@ public class Jugador {
     public void draw(Graphics2D g) {
         AffineTransform at = g.getTransform();
         g.translate(x, y);
-        // dibujar escalado a SIZE para coincidir con colisiones
-        g.drawImage(sprite, 0, 0, (int) SIZE, (int) SIZE, null);
+        // dibujar escalado a WIDTH x HEIGHT para coincidir con colisiones
+        g.drawImage(sprite, 0, 0, (int) WIDTH, (int) HEIGHT, null);
         g.setTransform(at);
     }
 
@@ -73,8 +76,11 @@ public class Jugador {
     public double getVY() { return vy; }
 
     public int getAltoPx(){
-        return (int) SIZE; // altura del sprite (suponemos cuadrado)
+        return (int) HEIGHT; // altura del sprite (1.8 bloques)
     }
+
+    // Nuevo helper opcional por si se requiere
+    public int getAnchoPx() { return (int) WIDTH; }
 
     public void colocar(Punto p){
         this.x = p.x();
@@ -83,7 +89,7 @@ public class Jugador {
 
     // Nuevo: bounds para colisión
     public Rectangle2D getBounds() {
-        return new Rectangle2D.Double(x, y, SIZE, SIZE);
+        return new Rectangle2D.Double(x, y, WIDTH, HEIGHT);
     }
 
     // Update recibe lista de bloques para colisión
@@ -142,12 +148,12 @@ public class Jugador {
 
         // --- Integración y colisión eje X ---
         double nuevoX = x + vx * dt;
-        Rectangle2D futuroX = new Rectangle2D.Double(nuevoX, y, SIZE, SIZE);
+        Rectangle2D futuroX = new Rectangle2D.Double(nuevoX, y, WIDTH, HEIGHT);
         for (BasicBlock b : bloques) {
             if (futuroX.intersects(b.getBounds())) {
                 Rectangle2D br = b.getBounds();
                 if (vx > 0) {
-                    nuevoX = br.getX() - SIZE; // a la izquierda del bloque
+                    nuevoX = br.getX() - WIDTH; // a la izquierda del bloque
                 } else if (vx < 0) {
                     nuevoX = br.getX() + br.getWidth(); // a la derecha del bloque
                 }
@@ -159,13 +165,13 @@ public class Jugador {
 
         // --- Integración y colisión eje Y ---
         double nuevoY = y + vy * dt;
-        Rectangle2D futuroY = new Rectangle2D.Double(x, nuevoY, SIZE, SIZE);
+        Rectangle2D futuroY = new Rectangle2D.Double(x, nuevoY, WIDTH, HEIGHT);
         enSuelo = false;
         for (BasicBlock b : bloques) {
             if (futuroY.intersects(b.getBounds())) {
                 Rectangle2D br = b.getBounds();
                 if (vy > 0) { // cayendo
-                    nuevoY = br.getY() - SIZE; // arriba del bloque
+                    nuevoY = br.getY() - HEIGHT; // arriba del bloque
                     vy = 0;
                     enSuelo = true;
                 } else if (vy < 0) { // subiendo
