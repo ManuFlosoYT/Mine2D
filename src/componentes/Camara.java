@@ -10,14 +10,14 @@ public class Camara {
     private double x = 0.0;
     private double y = 0.0;
 
-    private int viewportWidth;
-    private int viewportHeight;
+    private final int viewportWidth;
+    private final int viewportHeight;
 
     // Ratios zona muerta (tercios)
-    private static final double DEADZONE_LEFT_RATIO = 1.0 / 3.0;
-    private static final double DEADZONE_RIGHT_RATIO = 2.0 / 3.0;
-    private static final double DEADZONE_TOP_RATIO = 1.0 / 3.0;
-    private static final double DEADZONE_BOTTOM_RATIO = 2.0 / 3.0;
+    private static final double TERCIO_IZQUIERDO = 1.0 / 3.0;
+    private static final double TERCIO_DERECHO = 2.0 / 3.0;
+    private static final double TERCIO_SUPERIOR = 1.0 / 3.0;
+    private static final double TERCIO_INFERIOR = 2.0 / 3.0;
 
     // Suavizado (valor alto = sigue más rápido)
     private static final double CAMERA_SMOOTH_SPEED = 10.0;
@@ -47,25 +47,25 @@ public class Camara {
         double playerBottom = playerY + playerSize;
 
         // Umbrales actuales
-        double leftThreshold = x + viewportWidth * DEADZONE_LEFT_RATIO;
-        double rightThreshold = x + viewportWidth * DEADZONE_RIGHT_RATIO;
-        double topThreshold = y + viewportHeight * DEADZONE_TOP_RATIO;
-        double bottomThreshold = y + viewportHeight * DEADZONE_BOTTOM_RATIO;
+        double leftThreshold = x + viewportWidth * TERCIO_IZQUIERDO;
+        double rightThreshold = x + viewportWidth * TERCIO_DERECHO;
+        double topThreshold = y + viewportHeight * TERCIO_SUPERIOR;
+        double bottomThreshold = y + viewportHeight * TERCIO_INFERIOR;
 
         double desiredX = x;
         double desiredY = y;
 
         // Ajuste horizontal
         if (playerX < leftThreshold) {
-            desiredX = playerX - viewportWidth * DEADZONE_LEFT_RATIO;
+            desiredX = playerX - viewportWidth * TERCIO_IZQUIERDO;
         } else if (playerRight > rightThreshold) {
-            desiredX = playerRight - viewportWidth * DEADZONE_RIGHT_RATIO;
+            desiredX = playerRight - viewportWidth * TERCIO_DERECHO;
         }
         // Ajuste vertical
         if (playerY < topThreshold) {
-            desiredY = playerY - viewportHeight * DEADZONE_TOP_RATIO;
+            desiredY = playerY - viewportHeight * TERCIO_SUPERIOR;
         } else if (playerBottom > bottomThreshold) {
-            desiredY = playerBottom - viewportHeight * DEADZONE_BOTTOM_RATIO;
+            desiredY = playerBottom - viewportHeight * TERCIO_INFERIOR;
         }
 
         // Clamps
@@ -95,9 +95,4 @@ public class Camara {
 
     public double getX() { return x; }
     public double getY() { return y; }
-
-    public void setViewportSize(int w, int h) {
-        this.viewportWidth = w;
-        this.viewportHeight = h;
-    }
 }

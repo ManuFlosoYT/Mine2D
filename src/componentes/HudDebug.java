@@ -42,8 +42,5 @@ public class HudDebug {
         g.drawString(ftTxt, 16, 46);
         g.setTransform(old);
     }
-
-    public int getHudFPS() { return hudFPS; }
-    public double getHudFrameTimeMs() { return hudFrameTimeMs; }
 }
 

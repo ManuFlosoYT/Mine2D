@@ -8,7 +8,6 @@ import java.awt.geom.AffineTransform;
 import java.awt.geom.Rectangle2D;
 import java.io.File;
 import java.net.URL;
-import java.util.Objects;
 
 public class BasicBlock {
 
@@ -49,23 +48,16 @@ public class BasicBlock {
         g.setTransform(at);
     }
 
-    public Punto getP() {
-        return p;
-    }
-
-    public String getBlockID() {
-        return blockID;
-    }
-
     public double getDureza() { return dureza; }
 
     private double calcularDureza(String id) {
         // Valores ejemplo; ajustar según diseño
         return switch (id) {
-            case "stone" -> 1.2; // 1.5 segundos de mantener click
+            case "stone" -> 1.5;
             case "dirt" -> 0.8;
-            case "grass_block" -> 0.85;
-            default -> 1.0; // valor por defecto
+            case "sand" -> 0.4;
+            case "grass_block" -> 0.6;
+            default -> 1.0;
         };
     }
 
@@ -73,7 +65,4 @@ public class BasicBlock {
     public Rectangle2D getBounds() {
         return new Rectangle2D.Double(p.x(), p.y(), SIZE, SIZE);
     }
-
-    public double getX() { return p.x(); }
-    public double getY() { return p.y(); }
 }

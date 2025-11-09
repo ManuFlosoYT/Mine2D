@@ -128,14 +128,7 @@ public class EditorMundo {
         return segmentClearVertical(x0, y0, y1, world) && segmentClearHorizontal(x0, y1, x1, world);
     }
 
-    private int clamp(int v, int min, int max) { return v < min ? min : (v > max ? max : v); }
-
-    private boolean pathClear(int x0, int y0, int x1, int y1, BasicBlock[][] world) {
-        // Horizontal primero
-        if (!segmentClearHorizontal(x0, y0, x1, world)) return false;
-        if (!segmentClearVertical(x1, y0, y1, world)) return false;
-        return true;
-    }
+    private int clamp(int v, int min, int max) { return Math.min(Math.max(v, min), max); }
 
     private boolean segmentClearHorizontal(int x0, int y, int x1, BasicBlock[][] world) {
         int dir = Integer.compare(x1, x0);
@@ -154,8 +147,10 @@ public class EditorMundo {
     }
 
     private boolean isAir(int tileX, int tileY, BasicBlock[][] world) {
-        if (tileY < 0 || tileX < 0 || tileY >= world.length || tileX >= world[0].length) return true; // fuera = lo tratamos como aire para no bloquear
-        return world[tileY][tileX] == null; // aire si null
+        if (tileY < 0 || tileX < 0) return true;
+        int arrY = world.length - 1 - tileY;
+        if (arrY < 0 || arrY >= world.length || tileX >= world[0].length) return true;
+        return world[arrY][tileX] == null;
     }
 
     // --- Getters para feedback visual ---
@@ -181,15 +176,15 @@ public class EditorMundo {
             last = now;
 
             BasicBlock[][] local = mundo;
-            // Calcular siempre hover
             if (local != null) {
                 double worldXHover = camara.getX() + mouseX;
                 double worldYHover = camara.getY() + mouseY;
                 int htx = (int)Math.floor(worldXHover / size);
                 int hty = (int)Math.floor(worldYHover / size);
-                if (htx >= 0 && hty >= 0 && local.length > 0 && hty < local.length && htx < local[0].length) {
+                int harrY = local.length - 1 - hty;
+                if (htx >= 0 && hty >= 0 && harrY >= 0 && harrY < local.length && htx < local[0].length) {
                     Rectangle2D pbHover = jugador.getBounds();
-                    if (isTileInteractable(htx, hty, pbHover, size, local) && local[hty][htx] != null) {
+                    if (isTileInteractable(htx, hty, pbHover, size, local) && local[harrY][htx] != null) {
                         hoverTileX = htx;
                         hoverTileY = hty;
                     } else {
@@ -210,7 +205,8 @@ public class EditorMundo {
                 double worldY = camara.getY() + mouseY;
                 int tileX = (int) Math.floor(worldX / size);
                 int tileY = (int) Math.floor(worldY / size);
-                if (tileY >= 0 && tileX >= 0 && local.length > 0 && tileY < local.length && tileX < local[0].length) {
+                int arrYBreak = local.length - 1 - tileY;
+                if (tileY >= 0 && tileX >= 0 && arrYBreak >= 0 && arrYBreak < local.length && tileX < local[0].length) {
                     Rectangle2D pb = jugador.getBounds();
                     if (!isTileInteractable(tileX, tileY, pb, size, local)) {
                         holdTimeSeconds = 0.0;
@@ -218,7 +214,7 @@ public class EditorMundo {
                         targetTileY = Integer.MIN_VALUE;
                         currentDureza = 0.0;
                     } else {
-                        BasicBlock b = local[tileY][tileX];
+                        BasicBlock b = local[arrYBreak][tileX];
                         if (b == null) {
                             holdTimeSeconds = 0.0;
                             targetTileX = Integer.MIN_VALUE;
@@ -235,7 +231,7 @@ public class EditorMundo {
                             double dureza = b.getDureza();
                             currentDureza = dureza;
                             if (holdTimeSeconds >= dureza) {
-                                local[tileY][tileX] = null;
+                                local[arrYBreak][tileX] = null;
                                 holdTimeSeconds = 0.0;
                                 targetTileX = Integer.MIN_VALUE;
                                 targetTileY = Integer.MIN_VALUE;
@@ -258,6 +254,7 @@ public class EditorMundo {
             }
 
             try { Thread.sleep(10); } catch (InterruptedException e) { if (!running) break; }
+            // Sleep breve para reducir uso de CPU; considerar integrar con game loop para eliminar warning
         }
     }
 }

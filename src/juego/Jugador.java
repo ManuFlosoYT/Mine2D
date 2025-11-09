@@ -1,7 +1,6 @@
 package juego;
 
 import componentes.Input;
-import programa.Main;
 import tipos.Punto;
 import juego.bloques.BasicBlock;
 
@@ -44,22 +43,20 @@ public class Jugador {
     private boolean enSuelo;
 
     public Jugador() {
-        sprite = cargarImagen("assets/test.png");
+        sprite = cargarImagen();
     }
 
-    private Image cargarImagen(@org.jetbrains.annotations.NotNull String path) {
-        // Intentar vía classpath
-        String normalized = path.startsWith("/") ? path.substring(1) : path;
-        URL url = getClass().getClassLoader().getResource(normalized);
+    private Image cargarImagen() {
+        String path = "assets/test.png";
+        URL url = getClass().getClassLoader().getResource(path);
         if (url != null) {
             return new ImageIcon(url).getImage();
         }
-        // Fallback relativo al directorio de ejecución (out), apuntando a ../src/
-        File file = new File("../src/" + normalized);
+        File file = new File("../src/" + path);
         if (file.exists()) {
             return new ImageIcon(file.getAbsolutePath()).getImage();
         }
-        throw new IllegalStateException("No se pudo cargar la imagen: " + path + " (normalizado: " + normalized + ")" );
+        throw new IllegalStateException("No se pudo cargar la imagen: " + path + " (normalizado: " + path + ")" );
     }
 
     public void draw(Graphics2D g) {
@@ -72,15 +69,10 @@ public class Jugador {
 
     public double getX() { return x; }
     public double getY() { return y; }
-    public double getVX() { return vx; }
-    public double getVY() { return vy; }
 
     public int getAltoPx(){
         return (int) HEIGHT; // altura del sprite (1.8 bloques)
     }
-
-    // Nuevo helper opcional por si se requiere
-    public int getAnchoPx() { return (int) WIDTH; }
 
     public void colocar(Punto p){
         this.x = p.x();

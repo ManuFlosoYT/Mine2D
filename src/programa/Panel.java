@@ -113,12 +113,14 @@ public class Panel extends JComponent {
         int minTileY = Math.max(0, (int)Math.floor(pb.getY() / size) - margenTiles);
         int maxTileY = (int)Math.floor((pb.getY() + pb.getHeight()) / size) + margenTiles;
         if (mundo.length == 0) return lista;
-        int maxY = mundo.length - 1;
+        int maxYTopBased = mundo.length - 1; // número de tiles en Y - 1
         int maxX = mundo[0].length - 1;
         if (maxTileX > maxX) maxTileX = maxX;
-        if (maxTileY > maxY) maxTileY = maxY;
-        for (int y = minTileY; y <= maxTileY; y++) {
-            BasicBlock[] fila = mundo[y];
+        if (maxTileY > maxYTopBased) maxTileY = maxYTopBased;
+        for (int yTop = minTileY; yTop <= maxTileY; yTop++) {
+            int arrY = mundo.length - 1 - yTop; // convertir a índice de array (0 abajo)
+            if (arrY < 0 || arrY >= mundo.length) continue;
+            BasicBlock[] fila = mundo[arrY];
             for (int x = minTileX; x <= maxTileX; x++) {
                 BasicBlock b = fila[x];
                 if (b != null) lista.add(b);
@@ -134,10 +136,15 @@ public class Panel extends JComponent {
         int colsVisible = (int) Math.ceil(ancho / size) + 2;
         int rowsVisible = (int) Math.ceil(alto / size) + 2;
         int startX = (int)Math.floor(camara.getX() / size);
-        int startY = (int)Math.floor(camara.getY() / size);
-        for (int y = startY; y < Math.min(mundo.length, startY + rowsVisible); y++) {
-            BasicBlock[] fila = mundo[y];
-            for (int x = startX; x < Math.min(fila.length, startX + colsVisible); x++) {
+        int startYTop = (int)Math.floor(camara.getY() / size); // 0 arriba
+        int endX = Math.min(mundo[0].length, startX + colsVisible);
+        int endYTop = Math.min(mundo.length, startYTop + rowsVisible);
+        for (int yTop = startYTop; yTop < endYTop; yTop++) {
+            int arrY = mundo.length - 1 - yTop; // índice de array (0 abajo)
+            if (arrY < 0 || arrY >= mundo.length) continue;
+            BasicBlock[] fila = mundo[arrY];
+            for (int x = startX; x < endX; x++) {
+                if (x < 0 || x >= fila.length) continue;
                 BasicBlock b = fila[x];
                 if (b != null) bloquesVisibles.add(b);
             }
@@ -213,20 +220,16 @@ public class Panel extends JComponent {
             @Override
             public void keyPressed(KeyEvent e) {
                 final boolean estado = true;
-                if(e.getKeyCode() == KeyEvent.VK_W) input.setKeyW(estado);
                 if(e.getKeyCode() == KeyEvent.VK_A) input.setKeyA(estado);
                 if(e.getKeyCode() == KeyEvent.VK_D) input.setKeyD(estado);
-                if(e.getKeyCode() == KeyEvent.VK_S) input.setKeyS(estado);
                 if(e.getKeyCode() == KeyEvent.VK_SPACE) input.pressSpace();
             }
             @Override
             public void keyReleased(KeyEvent e) {
                 final boolean estado = false;
                 if(e.getKeyCode() == KeyEvent.VK_SPACE) input.releaseSpace();
-                if(e.getKeyCode() == KeyEvent.VK_W) input.setKeyW(estado);
                 if(e.getKeyCode() == KeyEvent.VK_A) input.setKeyA(estado);
                 if(e.getKeyCode() == KeyEvent.VK_D) input.setKeyD(estado);
-                if(e.getKeyCode() == KeyEvent.VK_S) input.setKeyS(estado);
             }
         });
     }

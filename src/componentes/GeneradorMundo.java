@@ -5,27 +5,24 @@ import tipos.Punto;
 
 public class GeneradorMundo {
 
-    public static BasicBlock[][] generar(int ancho, int alto) {
-        return generar(ancho, alto, 0, 0);
-    }
-
     public static BasicBlock[][] generar(int ancho, int alto, double offsetX, double offsetY) {
-        BasicBlock[][] mundo = new BasicBlock[alto][ancho]; // [fila(y)][col(x)]
+        BasicBlock[][] mundo = new BasicBlock[alto][ancho]; // [arrayY][x] con arrayY=0 abajo
         final double size = BasicBlock.getSize();
 
-        for (int y = 0; y < alto; y++) {
+        for (int arrayY = 0; arrayY < alto; arrayY++) {
             for (int x = 0; x < ancho; x++) {
-                BasicBlock bloque = null;
-                if (y == 64) {
-                    bloque = new BasicBlock("grass_block", new Punto(offsetX + x * size, offsetY + y * size));
-                } else if (y >= 65 && y <= 67) {
-                    bloque = new BasicBlock("dirt", new Punto(offsetX + x * size, offsetY + y * size));
-                } else if (y >= 68) {
-                    bloque = new BasicBlock("stone", new Punto(offsetX + x * size, offsetY + y * size));
+                BasicBlock bloque;
+                Punto p = new Punto(offsetX + x * size, offsetY + (alto - 1 - arrayY) * size);
+                if (arrayY <= 60) {
+                    bloque = new BasicBlock("stone", p);
+                } else if (arrayY <= 63) { // 61..63
+                    bloque = new BasicBlock("dirt", p);
+                } else if (arrayY == 64) {
+                    bloque = new BasicBlock("grass_block", p);
                 } else {
                     bloque = null; // aire
                 }
-                mundo[y][x] = bloque;
+                mundo[arrayY][x] = bloque;
             }
         }
         return mundo;
