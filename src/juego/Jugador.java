@@ -30,9 +30,9 @@ public class Jugador {
     private static final double VX_FRICTION = 1100;  // px/s^2 fricción cuando no se pulsa nada
     private static final double VX_MAX = 300;        // px/s velocidad horizontal máxima
 
-    private static final double GRAVEDAD = 900;      // px/s^2 gravedad
+    private static final double GRAVEDAD = 1500;      // px/s^2 gravedad
     private static final double VY_SALTO = 500;      // px/s velocidad inicial de salto
-    private static final double VY_MAX_CAIDA = 800;  // px/s límite máximo de caída
+    private static final double VY_MAX_CAIDA = 1200;  // px/s límite máximo de caída
 
     // Jump buffering & coyote time
     private static final double JUMP_BUFFER_TIME = 0.20; // segundos

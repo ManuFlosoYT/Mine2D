@@ -163,15 +163,21 @@ public class Panel extends JComponent {
         for (BasicBlock b : bloquesVisibles) { b.draw(graphics); }
         jugador.draw(graphics);
         double size = BasicBlock.getSize();
-        // Borde negro por hover
+        // Borde por hover (negro si hay bloque, gris claro y fino si es aire)
         if (editorMundo != null && editorMundo.isHoveringInteractable()) {
             int htx = editorMundo.getHoverTileX();
             int hty = editorMundo.getHoverTileY();
             if (htx != Integer.MIN_VALUE && hty != Integer.MIN_VALUE) {
                 double bx = htx * size;
                 double by = hty * size;
-                graphics.setColor(Color.BLACK);
-                graphics.setStroke(new BasicStroke(2.5f));
+                boolean hasBlock = editorMundo.hoverHasBlock();
+                if (hasBlock) {
+                    graphics.setColor(Color.BLACK);
+                    graphics.setStroke(new BasicStroke(2.5f));
+                } else {
+                    graphics.setColor(new Color(220, 220, 220)); // gris claro
+                    graphics.setStroke(new BasicStroke(1.2f));   // más fino
+                }
                 graphics.drawRect((int)bx, (int)by, (int)size, (int)size);
             }
         }

@@ -2,6 +2,7 @@ package componentes;
 
 import juego.bloques.BasicBlock;
 import juego.Jugador;
+import tipos.Punto; // nuevo import para crear bloques
 
 import javax.swing.*;
 import java.awt.event.MouseAdapter;
@@ -30,6 +31,7 @@ public class EditorMundo {
     // Tracking de bloque bajo el cursor
     private volatile int hoverTileX = Integer.MIN_VALUE;
     private volatile int hoverTileY = Integer.MIN_VALUE;
+    private volatile boolean hoverHasBlock = false; // indica si el hover tiene bloque o es aire
 
     public EditorMundo(BasicBlock[][] mundo, Camara camara, JComponent superficie, Jugador jugador) {
         this.mundo = mundo;
@@ -61,6 +63,26 @@ public class EditorMundo {
                     leftDown = true;
                     mouseX = e.getX();
                     mouseY = e.getY();
+                } else if (SwingUtilities.isRightMouseButton(e)) {
+                    // Colocación de bloque stone en aire si es interactuable
+                    BasicBlock[][] local = mundo;
+                    if (local == null) return;
+                    double size = BasicBlock.getSize();
+                    int tileX = (int) Math.floor((camara.getX() + e.getX()) / size);
+                    int tileY = (int) Math.floor((camara.getY() + e.getY()) / size);
+                    if (tileX < 0 || tileY < 0) return;
+                    int arrY = local.length - 1 - tileY;
+                    if (arrY < 0 || arrY >= local.length || tileX >= local[0].length) return;
+                    Rectangle2D pb = jugador.getBounds();
+                    if (!isTileInteractable(tileX, tileY, pb, size, local)) return; // fuera de rango
+                    if (local[arrY][tileX] == null) {
+                        // crear bloque stone
+                        local[arrY][tileX] = new BasicBlock("stone", new Punto(tileX * size, tileY * size));
+                        // actualizar hover inmediatamente
+                        hoverTileX = tileX;
+                        hoverTileY = tileY;
+                        hoverHasBlock = true;
+                    }
                 }
             }
             @Override
@@ -166,6 +188,7 @@ public class EditorMundo {
     public int getHoverTileX() { return hoverTileX; }
     public int getHoverTileY() { return hoverTileY; }
     public boolean isHoveringInteractable() { return hoverTileX != Integer.MIN_VALUE && hoverTileY != Integer.MIN_VALUE; }
+    public boolean hoverHasBlock() { return hoverHasBlock; }
 
     private void loop() {
         final double size = BasicBlock.getSize();
@@ -184,20 +207,24 @@ public class EditorMundo {
                 int harrY = local.length - 1 - hty;
                 if (htx >= 0 && hty >= 0 && harrY >= 0 && harrY < local.length && htx < local[0].length) {
                     Rectangle2D pbHover = jugador.getBounds();
-                    if (isTileInteractable(htx, hty, pbHover, size, local) && local[harrY][htx] != null) {
+                    if (isTileInteractable(htx, hty, pbHover, size, local)) {
                         hoverTileX = htx;
                         hoverTileY = hty;
+                        hoverHasBlock = local[harrY][htx] != null; // true si hay bloque
                     } else {
                         hoverTileX = Integer.MIN_VALUE;
                         hoverTileY = Integer.MIN_VALUE;
+                        hoverHasBlock = false;
                     }
                 } else {
                     hoverTileX = Integer.MIN_VALUE;
                     hoverTileY = Integer.MIN_VALUE;
+                    hoverHasBlock = false;
                 }
             } else {
                 hoverTileX = Integer.MIN_VALUE;
                 hoverTileY = Integer.MIN_VALUE;
+                hoverHasBlock = false;
             }
 
             if (leftDown && local != null) {
@@ -236,6 +263,8 @@ public class EditorMundo {
                                 targetTileX = Integer.MIN_VALUE;
                                 targetTileY = Integer.MIN_VALUE;
                                 currentDureza = 0.0;
+                                // actualizar hoverHasBlock después de romper
+                                if (hoverTileX == tileX && hoverTileY == tileY) hoverHasBlock = false;
                             }
                         }
                     }
