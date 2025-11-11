@@ -37,9 +37,15 @@ public class Panel extends JComponent {
     private HudDebug hud;
     private EditorMundo editorMundo; // nuevo editor
 
+    private static final int ANCHO_MUNDO = 1024;
+    private static final int ALTO_MUNDO = 128;
+
+    private static final Color COLOR_CIELO = new Color(135, 206, 235); // color del cielo new Color(0, 191, 255)
+
     public void start() {
         ancho = getWidth();
         alto = getHeight();
+
         if (ancho <= 0 || alto <= 0) {
             ancho = Main.ANCHO;
             alto = Main.ALTO;
@@ -88,8 +94,9 @@ public class Panel extends JComponent {
 
     private void initGame(){
         jugador = new Jugador();
-        jugador.colocar(new tipos.Punto(100, 64 * TAM_BLOQUE - jugador.getAltoPx()));
-        mundo = GeneradorMundo.generar(1024, 128, 0, 0);
+        double startX = (double)(TAM_BLOQUE * ANCHO_MUNDO) / 2;
+        jugador.colocar(new tipos.Punto(startX, 64 * TAM_BLOQUE - jugador.getAltoPx()));
+        mundo = GeneradorMundo.generar(ANCHO_MUNDO, ALTO_MUNDO, 0, 0);
         camara = new Camara(ancho, alto);
         camara.update(jugador, mundo, 0);
         hud = new HudDebug();
@@ -152,7 +159,7 @@ public class Panel extends JComponent {
     }
 
     private void drawBackground(){
-        graphics.setColor(new Color(0, 191, 255));
+        graphics.setColor(COLOR_CIELO);
         graphics.fillRect(0, 0, ancho, alto);
     }
 
