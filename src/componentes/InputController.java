@@ -9,14 +9,9 @@ import java.awt.event.KeyEvent;
  * Permite desacoplar el manejo de eventos de la clase Panel.
  */
 public class InputController {
-    public interface DebugHotkeysListener {
-        void onSaveRequested();
-        void onLoadRequested();
-    }
 
     private final JComponent component;
     private final Input input;
-    private DebugHotkeysListener debugListener;
 
     private final KeyAdapter keyAdapter = new KeyAdapter() {
         @Override
@@ -25,8 +20,7 @@ public class InputController {
                 case KeyEvent.VK_A -> input.setKeyA(true);
                 case KeyEvent.VK_D -> input.setKeyD(true);
                 case KeyEvent.VK_SPACE -> input.pressSpace();
-                case KeyEvent.VK_F5 -> { if (debugListener != null) debugListener.onSaveRequested(); }
-                case KeyEvent.VK_F6 -> { if (debugListener != null) debugListener.onLoadRequested(); }
+                default -> {}
             }
         }
         @Override
@@ -48,11 +42,6 @@ public class InputController {
     public InputController(JComponent component, Input input) {
         this.component = component;
         this.input = input;
-    }
-
-    /** Establece un listener para hotkeys de depuración (F5/F6). */
-    public void setDebugHotkeysListener(DebugHotkeysListener listener) {
-        this.debugListener = listener;
     }
 
     /** Instala el KeyListener en el componente y solicita foco. */

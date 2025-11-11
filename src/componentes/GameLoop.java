@@ -6,16 +6,17 @@ import programa.Panel;
 
 import java.awt.Graphics2D;
 import java.util.List;
+import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 
 /**
  * Bucle principal del juego responsable de: actualizar estado, renderizar y regular FPS.
  *
- * <p>Implementa un game loop simple sincronizado a un objetivo de 60 FPS mediante cálculo
- * de tiempo de trabajo y compensación con sleep. Usa un buffer offscreen provisto por {@link Panel}.</p>
+ * <p>Soporta dt variable y, opcionalmente, un límite de FPS tipo "vsync" mediante sleep.</p>
  */
 public class GameLoop implements Runnable {
-    private static final int FPS = 60;
-    private static final long FRAME_TIME_NANOS = 1_000_000_000L / FPS;
+    private static final int TARGET_FPS = 60;
+    private static final long FRAME_TIME_NANOS = 1_000_000_000L / TARGET_FPS;
 
     private final Panel panel;
     private final Jugador jugador;
@@ -25,6 +26,9 @@ public class GameLoop implements Runnable {
     private final Renderer renderer;
     private final List<BasicBlock> bloquesVisibles;
     private final Input input;
+    private final BooleanSupplier isPaused;
+    private final Runnable awaitIfPaused;
+    private final Supplier<Boolean> vsyncEnabled;
     private volatile boolean running = true;
 
     /**
@@ -37,7 +41,10 @@ public class GameLoop implements Runnable {
                     EditorMundo editorMundo,
                     Renderer renderer,
                     List<BasicBlock> bloquesVisibles,
-                    Input input) {
+                    Input input,
+                    BooleanSupplier isPaused,
+                    Runnable awaitIfPaused,
+                    Supplier<Boolean> vsyncEnabled) {
         this.panel = panel;
         this.jugador = jugador;
         this.camara = camara;
@@ -46,39 +53,53 @@ public class GameLoop implements Runnable {
         this.renderer = renderer;
         this.bloquesVisibles = bloquesVisibles;
         this.input = input;
+        this.isPaused = (isPaused != null) ? isPaused : () -> false;
+        this.awaitIfPaused = (awaitIfPaused != null) ? awaitIfPaused : () -> {};
+        this.vsyncEnabled = (vsyncEnabled != null) ? vsyncEnabled : () -> Boolean.TRUE;
     }
 
     /** Solicita la parada del loop en el siguiente ciclo. */
     public void detener() { running = false; }
 
     /**
-     * Ejecuta el bucle: update -> render -> sincronización FPS.
+     * Ejecuta el bucle con dt variable; si vsync está activo, se limita a TARGET_FPS.
      */
     @Override
     public void run() {
-        final double dt = 1.0 / FPS;
+        long lastTime = System.nanoTime();
         while (running) {
+            if (isPaused.getAsBoolean()) {
+                awaitIfPaused.run();
+                lastTime = System.nanoTime(); // resetear delta tras reanudar
+                continue;
+            }
             long inicio = System.nanoTime();
-            // Capturar referencia actual del mundo (puede cambiar por carga debug)
+            double dt = (inicio - lastTime) / 1_000_000_000.0; // segundos
+            lastTime = inicio;
+            if (dt > 0.1) dt = 0.1;
+
             BasicBlock[][] mundo = panel.getMundo();
-            // Update
             var cercanos = MundoHelper.obtenerBloquesCercanosJugador(mundo, jugador, 2);
             jugador.update(input, dt, cercanos);
             camara.update(jugador, mundo, dt);
             MundoHelper.actualizarBloquesVisibles(bloquesVisibles, mundo, camara, panel.getAncho(), panel.getAlto());
-            // Render offscreen
-            Graphics2D g = panel.getOffscreenGraphics();
-            renderer.drawBackground(g, panel.getAncho(), panel.getAlto());
-            renderer.drawGame(g, bloquesVisibles, jugador, camara, editorMundo);
-            hud.draw(g);
+
+            synchronized (((programa.Panel)panel).getRenderLock()) {
+                Graphics2D g = panel.getOffscreenGraphics();
+                renderer.drawBackground(g, panel.getAncho(), panel.getAlto());
+                renderer.drawGame(g, bloquesVisibles, jugador, camara, editorMundo);
+                hud.draw(g);
+            }
             panel.present();
-            // Timing
+
             long trabajo = System.nanoTime() - inicio;
-            long restante = FRAME_TIME_NANOS - trabajo;
-            if (restante > 0) {
-                long ms = restante / 1_000_000L;
-                int ns = (int)(restante % 1_000_000L);
-                try { Thread.sleep(ms, ns); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            if (Boolean.TRUE.equals(vsyncEnabled.get())) {
+                long restante = FRAME_TIME_NANOS - trabajo;
+                if (restante > 0) {
+                    long ms = restante / 1_000_000L;
+                    int ns = (int)(restante % 1_000_000L);
+                    try { Thread.sleep(ms, ns); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                }
             }
             long fin = System.nanoTime();
             hud.updateFrame(fin - inicio);

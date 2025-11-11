@@ -8,25 +8,16 @@ import javax.swing.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.Rectangle2D;
+import java.util.function.BooleanSupplier;
 
-/**
- * Sistema de edición/interacción con bloques del mundo.
- *
- * <p>Permite:
- * - Romper bloques manteniendo clic izquierdo (respetando dureza y alcance).
- * - Colocar bloques de tipo "stone" con clic derecho en espacios de aire dentro del rango.
- * - Mostrar feedback visual de hover y progreso de rotura.</p>
- *
- * <p>La conversión de índices usa la convención de matriz [arrayY][x] con arrayY=0 en la fila inferior.
- * Para interacción se aplica una verificación de línea de visión y un área de alcance generada alrededor
- * del jugador (expansión de 1 tile en cada dirección) excluyendo el volumen ocupado por el jugador.</p>
- */
 public class EditorMundo {
     private volatile BasicBlock[][] mundo; // rejilla [fila(y)][col(x)]
     private final Camara camara;           // para convertir coords de pantalla -> mundo
     private final JComponent superficie;   // componente que recibe eventos de mouse
     private final Thread thread;           // thread de edición
     private final Jugador jugador;         // referencia al jugador para calcular adyacencia
+    private final BooleanSupplier isPausedSupplier; // proveedor de estado de pausa
+    private final Runnable awaitIfPaused; // bloquea hasta reanudar
     private volatile boolean running = true;
 
     // Estado del ratón
@@ -51,14 +42,27 @@ public class EditorMundo {
      * @param camara cámara para convertir coordenadas de pantalla a mundo
      * @param superficie componente Swing receptor de eventos de mouse
      * @param jugador entidad jugador para alcance y línea de visión
+     * @param isPausedSupplier proveedor de estado de pausa global (true si está en pausa)
+     * @param awaitIfPaused runnable que suspende el hilo hasta reanudar (opcional)
      */
-    public EditorMundo(BasicBlock[][] mundo, Camara camara, JComponent superficie, Jugador jugador) {
+    public EditorMundo(BasicBlock[][] mundo, Camara camara, JComponent superficie, Jugador jugador, BooleanSupplier isPausedSupplier, Runnable awaitIfPaused) {
         this.mundo = mundo;
         this.camara = camara;
         this.superficie = superficie;
         this.jugador = jugador;
+        this.isPausedSupplier = (isPausedSupplier != null) ? isPausedSupplier : () -> false;
+        this.awaitIfPaused = (awaitIfPaused != null) ? awaitIfPaused : () -> {};
         instalarMouseListener();
         this.thread = new Thread(this::loop, "WorldEditorThread");
+    }
+
+    public EditorMundo(BasicBlock[][] mundo, Camara camara, JComponent superficie, Jugador jugador, BooleanSupplier isPausedSupplier) {
+        this(mundo, camara, superficie, jugador, isPausedSupplier, null);
+    }
+
+    /** Constructor retrocompatible sin pausa (no recomendado). */
+    public EditorMundo(BasicBlock[][] mundo, Camara camara, JComponent superficie, Jugador jugador) {
+        this(mundo, camara, superficie, jugador, () -> false, null);
     }
 
     /** Inicia el thread de edición */
@@ -78,6 +82,7 @@ public class EditorMundo {
         MouseAdapter adapter = new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
+                if (isPausedSupplier.getAsBoolean()) return; // ignorar input en pausa
                 if (SwingUtilities.isLeftMouseButton(e)) {
                     leftDown = true;
                     mouseX = e.getX();
@@ -221,6 +226,22 @@ public class EditorMundo {
         final double size = BasicBlock.getSize();
         long last = System.nanoTime();
         while (running) {
+            if (isPausedSupplier.getAsBoolean()) {
+                // Congelar: resetear estados de interacción y no tocar el mundo
+                leftDown = false;
+                holdTimeSeconds = 0.0;
+                targetTileX = Integer.MIN_VALUE;
+                targetTileY = Integer.MIN_VALUE;
+                currentDureza = 0.0;
+                hoverTileX = Integer.MIN_VALUE;
+                hoverTileY = Integer.MIN_VALUE;
+                hoverHasBlock = false;
+                // Suspender hasta reanudar
+                awaitIfPaused.run();
+                last = System.nanoTime();
+                continue;
+            }
+
             long now = System.nanoTime();
             double dt = (now - last) / 1_000_000_000.0;
             last = now;
@@ -314,4 +335,3 @@ public class EditorMundo {
         }
     }
 }
-
