@@ -19,7 +19,6 @@ public class GameLoop implements Runnable {
 
     private final Panel panel;
     private final Jugador jugador;
-    private final BasicBlock[][] mundo;
     private final Camara camara;
     private final HudDebug hud;
     private final EditorMundo editorMundo;
@@ -30,19 +29,9 @@ public class GameLoop implements Runnable {
 
     /**
      * Crea un loop con todas las dependencias necesarias del juego.
-     * @param panel superficie y utilidades gráficas
-     * @param jugador entidad jugador
-     * @param mundo rejilla de bloques
-     * @param camara cámara de seguimiento
-     * @param hud HUD de depuración
-     * @param editorMundo editor de interacción/colocación
-     * @param renderer responsable del dibujado
-     * @param bloquesVisibles caché de bloques visibles para el frame
-     * @param input estado de entrada del jugador
      */
     public GameLoop(Panel panel,
                     Jugador jugador,
-                    BasicBlock[][] mundo,
                     Camara camara,
                     HudDebug hud,
                     EditorMundo editorMundo,
@@ -51,7 +40,6 @@ public class GameLoop implements Runnable {
                     Input input) {
         this.panel = panel;
         this.jugador = jugador;
-        this.mundo = mundo;
         this.camara = camara;
         this.hud = hud;
         this.editorMundo = editorMundo;
@@ -71,6 +59,8 @@ public class GameLoop implements Runnable {
         final double dt = 1.0 / FPS;
         while (running) {
             long inicio = System.nanoTime();
+            // Capturar referencia actual del mundo (puede cambiar por carga debug)
+            BasicBlock[][] mundo = panel.getMundo();
             // Update
             var cercanos = MundoHelper.obtenerBloquesCercanosJugador(mundo, jugador, 2);
             jugador.update(input, dt, cercanos);

@@ -9,22 +9,34 @@ import java.awt.event.KeyEvent;
  * Permite desacoplar el manejo de eventos de la clase Panel.
  */
 public class InputController {
+    public interface DebugHotkeysListener {
+        void onSaveRequested();
+        void onLoadRequested();
+    }
+
     private final JComponent component;
     private final Input input;
+    private DebugHotkeysListener debugListener;
+
     private final KeyAdapter keyAdapter = new KeyAdapter() {
         @Override
         public void keyPressed(KeyEvent e) {
-            final boolean estado = true;
-            if (e.getKeyCode() == KeyEvent.VK_A) input.setKeyA(estado);
-            if (e.getKeyCode() == KeyEvent.VK_D) input.setKeyD(estado);
-            if (e.getKeyCode() == KeyEvent.VK_SPACE) input.pressSpace();
+            switch (e.getKeyCode()) {
+                case KeyEvent.VK_A -> input.setKeyA(true);
+                case KeyEvent.VK_D -> input.setKeyD(true);
+                case KeyEvent.VK_SPACE -> input.pressSpace();
+                case KeyEvent.VK_F5 -> { if (debugListener != null) debugListener.onSaveRequested(); }
+                case KeyEvent.VK_F6 -> { if (debugListener != null) debugListener.onLoadRequested(); }
+            }
         }
         @Override
         public void keyReleased(KeyEvent e) {
-            final boolean estado = false;
-            if (e.getKeyCode() == KeyEvent.VK_SPACE) input.releaseSpace();
-            if (e.getKeyCode() == KeyEvent.VK_A) input.setKeyA(estado);
-            if (e.getKeyCode() == KeyEvent.VK_D) input.setKeyD(estado);
+            switch (e.getKeyCode()) {
+                case KeyEvent.VK_SPACE -> input.releaseSpace();
+                case KeyEvent.VK_A -> input.setKeyA(false);
+                case KeyEvent.VK_D -> input.setKeyD(false);
+                default -> {}
+            }
         }
     };
 
@@ -36,6 +48,11 @@ public class InputController {
     public InputController(JComponent component, Input input) {
         this.component = component;
         this.input = input;
+    }
+
+    /** Establece un listener para hotkeys de depuración (F5/F6). */
+    public void setDebugHotkeysListener(DebugHotkeysListener listener) {
+        this.debugListener = listener;
     }
 
     /** Instala el KeyListener en el componente y solicita foco. */

@@ -36,6 +36,11 @@ public class BasicBlock {
     }
 
     /**
+     * Identificador de tipo de bloque (p.ej. "stone", "dirt").
+     */
+    public String getId() { return blockID; }
+
+    /**
      * Tamaño del bloque en píxeles de lado.
      */
     public static double getSize() {

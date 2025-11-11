@@ -3,6 +3,8 @@ package programa;
 import javax.swing.JComponent;
 import java.awt.*;
 import java.awt.image.BufferedImage;
+import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -29,7 +31,7 @@ public class Panel extends JComponent {
     private Input input;
     private InputController inputController;
     private Jugador jugador;
-    private BasicBlock[][] mundo;
+    private volatile BasicBlock[][] mundo;
     private final List<BasicBlock> bloquesVisibles = new ArrayList<>();
     private Camara camara;
     private HudDebug hud;
@@ -39,10 +41,9 @@ public class Panel extends JComponent {
 
     private static final int ANCHO_MUNDO = 1024;
     private static final int ALTO_MUNDO = 128;
+    private static final File DEBUG_WORLD_FILE = new File("world_debug.wgz");
 
-    /**
-     * Inicia el juego: crea buffers, inicializa subsistemas, instala input y lanza el loop.
-     */
+    /** Inicia el juego y sus subsistemas. */
     public void start() {
         ancho = getWidth();
         alto = getHeight();
@@ -55,19 +56,22 @@ public class Panel extends JComponent {
         graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
         initGame();
-        // Input control centralizado
         input = new Input();
         inputController = new InputController(this, input);
+        inputController.setDebugHotkeysListener(new InputController.DebugHotkeysListener() {
+            @Override
+            public void onSaveRequested() { debugSaveWorld(); }
+            @Override
+            public void onLoadRequested() { debugLoadWorld(); }
+        });
         inputController.install();
         if (editorMundo != null) editorMundo.start();
-        loop = new GameLoop(this, jugador, mundo, camara, hud, editorMundo, renderer, bloquesVisibles, input);
+        loop = new GameLoop(this, jugador, camara, hud, editorMundo, renderer, bloquesVisibles, input);
         gameThread = new Thread(loop, "GameLoopThread");
         gameThread.start();
     }
 
-    /**
-     * Detiene el juego, desinstala listeners y cierra hilos auxiliares de forma ordenada.
-     */
+    /** Detiene el juego y libera recursos. */
     public void stop(){
         if (loop != null) loop.detener();
         if(gameThread != null && gameThread.isAlive()){
@@ -94,9 +98,40 @@ public class Panel extends JComponent {
         if (renderer == null) renderer = new Renderer();
     }
 
-    /**
-     * Presenta el buffer offscreen en pantalla.
-     */
+    /** Guardar estado del mundo a archivo debug. */
+    private void debugSaveWorld() {
+        try {
+            WorldIO.saveCompressed(DEBUG_WORLD_FILE, mundo, new tipos.Punto(jugador.getX(), jugador.getY()));
+            System.out.println("[DEBUG] Mundo+jugador (comprimido) guardado en " + DEBUG_WORLD_FILE.getAbsolutePath());
+        } catch (IOException e) {
+            System.err.println("[DEBUG] Error guardando el mundo: " + e.getMessage());
+        }
+    }
+
+    /** Cargar estado del mundo desde archivo debug. */
+    private void debugLoadWorld() {
+        try {
+            if (!DEBUG_WORLD_FILE.exists()) {
+                System.out.println("[DEBUG] Archivo de mundo no existe: " + DEBUG_WORLD_FILE.getAbsolutePath());
+                return;
+            }
+            WorldData data = WorldIO.loadCompressedWithPlayer(DEBUG_WORLD_FILE);
+            BasicBlock[][] cargado = data.mundo();
+            if (cargado.length == 0) {
+                System.out.println("[DEBUG] Mundo cargado vacío.");
+                return;
+            }
+            mundo = cargado;
+            if (editorMundo != null) editorMundo.setMundo(mundo);
+            if (data.jugadorPos() != null) jugador.colocar(data.jugadorPos());
+            camara.update(jugador, mundo, 0);
+            System.out.println("[DEBUG] Mundo+jugador (comprimidos) cargados: " + mundo[0].length + "x" + mundo.length);
+        } catch (IOException e) {
+            System.err.println("[DEBUG] Error cargando el mundo: " + e.getMessage());
+        }
+    }
+
+    /** Presenta el buffer offscreen en pantalla. */
     public void present(){
         Graphics g = this.getGraphics();
         if (g != null) {
@@ -105,21 +140,11 @@ public class Panel extends JComponent {
         }
     }
 
-    // Getters necesarios para GameLoop
-    /**
-     * Ancho actual del panel en píxeles.
-     */
+    // Getters
     public int getAncho(){ return ancho; }
-    /**
-     * Alto actual del panel en píxeles.
-     */
     public int getAlto(){ return alto; }
-    /**
-     * Contexto gráfico del buffer offscreen. No debe almacenarse fuera del ciclo de render.
-     */
     public Graphics2D getOffscreenGraphics(){ return graphics; }
-    /**
-     * Acceso al estado de entrada actual.
-     */
     public Input getInput(){ return input; }
+    public BasicBlock[][] getMundo(){ return mundo; }
+    public void setMundo(BasicBlock[][] nuevo){ this.mundo = nuevo; }
 }
