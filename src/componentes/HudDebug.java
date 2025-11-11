@@ -5,7 +5,9 @@ import java.awt.geom.AffineTransform;
 
 /**
  * HUD de depuración que muestra FPS y duración del frame.
- * Encapsula el cálculo de FPS en una ventana temporal.
+ *
+ * <p>Acumula muestras de tiempo de frame y actualiza la métrica de FPS cada 250ms
+ * para evitar fluctuaciones bruscas.</p>
  */
 public class HudDebug {
     private long fpsWindowFrames = 0;
@@ -14,7 +16,10 @@ public class HudDebug {
     private int hudFPS = 0; // valor mostrado
     private double hudFrameTimeMs = 0.0; // último frame en ms
 
-    /** Llamar cada frame con la duración total del frame en nanosegundos */
+    /**
+     * Registra un frame completado y acumula tiempos para cálculo de FPS.
+     * @param frameNs duración del frame en nanosegundos
+     */
     public void updateFrame(long frameNs) {
         hudFrameTimeMs = frameNs / 1_000_000.0;
         fpsWindowFrames++;
@@ -27,7 +32,11 @@ public class HudDebug {
         }
     }
 
-    /** Dibuja el HUD en la esquina superior izquierda (ignora transformaciones previas) */
+    /**
+     * Dibuja el HUD en la esquina superior izquierda.
+     * Ignora transformaciones previas para asegurar posición fija.
+     * @param g contexto gráfico donde dibujar
+     */
     public void draw(Graphics2D g) {
         if (g == null) return;
         AffineTransform old = g.getTransform();
@@ -43,4 +52,3 @@ public class HudDebug {
         g.setTransform(old);
     }
 }
-

@@ -9,6 +9,18 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.Rectangle2D;
 
+/**
+ * Sistema de edición/interacción con bloques del mundo.
+ *
+ * <p>Permite:
+ * - Romper bloques manteniendo clic izquierdo (respetando dureza y alcance).
+ * - Colocar bloques de tipo "stone" con clic derecho en espacios de aire dentro del rango.
+ * - Mostrar feedback visual de hover y progreso de rotura.</p>
+ *
+ * <p>La conversión de índices usa la convención de matriz [arrayY][x] con arrayY=0 en la fila inferior.
+ * Para interacción se aplica una verificación de línea de visión y un área de alcance generada alrededor
+ * del jugador (expansión de 1 tile en cada dirección) excluyendo el volumen ocupado por el jugador.</p>
+ */
 public class EditorMundo {
     private volatile BasicBlock[][] mundo; // rejilla [fila(y)][col(x)]
     private final Camara camara;           // para convertir coords de pantalla -> mundo
@@ -33,6 +45,13 @@ public class EditorMundo {
     private volatile int hoverTileY = Integer.MIN_VALUE;
     private volatile boolean hoverHasBlock = false; // indica si el hover tiene bloque o es aire
 
+    /**
+     * Crea un editor de mundo asociado a la rejilla de bloques y al jugador.
+     * @param mundo rejilla de bloques [arrayY][x]
+     * @param camara cámara para convertir coordenadas de pantalla a mundo
+     * @param superficie componente Swing receptor de eventos de mouse
+     * @param jugador entidad jugador para alcance y línea de visión
+     */
     public EditorMundo(BasicBlock[][] mundo, Camara camara, JComponent superficie, Jugador jugador) {
         this.mundo = mundo;
         this.camara = camara;
@@ -176,18 +195,26 @@ public class EditorMundo {
     }
 
     // --- Getters para feedback visual ---
+    /** Tile X objetivo de rotura (o MIN_VALUE si ninguno). */
     public int getTargetTileX() { return targetTileX; }
+    /** Tile Y objetivo de rotura (o MIN_VALUE si ninguno). */
     public int getTargetTileY() { return targetTileY; }
+    /** Progreso normalizado (0..1) de rotura del bloque actual. */
     public double getBreakProgress() {
         if (currentDureza <= 0) return 0.0;
         return Math.min(1.0, holdTimeSeconds / currentDureza);
     }
+    /** Indica si actualmente se está rompiendo un bloque válido. */
     public boolean isBreaking() {
         return leftDown && currentDureza > 0 && targetTileX != Integer.MIN_VALUE && targetTileY != Integer.MIN_VALUE && holdTimeSeconds > 0.0;
     }
+    /** Tile X bajo el cursor interactuable (o MIN_VALUE si ninguno). */
     public int getHoverTileX() { return hoverTileX; }
+    /** Tile Y bajo el cursor interactuable (o MIN_VALUE si ninguno). */
     public int getHoverTileY() { return hoverTileY; }
+    /** True si el cursor está sobre un tile dentro del rango de interacción. */
     public boolean isHoveringInteractable() { return hoverTileX != Integer.MIN_VALUE && hoverTileY != Integer.MIN_VALUE; }
+    /** True si bajo el cursor hay un bloque (false si es aire). */
     public boolean hoverHasBlock() { return hoverHasBlock; }
 
     private void loop() {
@@ -287,3 +314,4 @@ public class EditorMundo {
         }
     }
 }
+

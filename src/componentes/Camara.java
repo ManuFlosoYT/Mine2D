@@ -4,7 +4,10 @@ import juego.Jugador;
 import juego.bloques.BasicBlock;
 
 /**
- * Clase que gestiona la posición de la cámara y su seguimiento suave al jugador
+ * Gestiona la posición de la cámara y su seguimiento suave del jugador.
+ *
+ * <p>Incluye una zona muerta basada en tercios de la pantalla para evitar movimientos
+ * bruscos y una interpolación exponencial para suavizar el desplazamiento.</p>
  */
 public class Camara {
     private double x = 0.0;
@@ -22,6 +25,11 @@ public class Camara {
     // Suavizado (valor alto = sigue más rápido)
     private static final double CAMERA_SMOOTH_SPEED = 10.0;
 
+    /**
+     * Crea una cámara con el tamaño del viewport especificado.
+     * @param viewportWidth ancho del viewport en píxeles
+     * @param viewportHeight alto del viewport en píxeles
+     */
     public Camara(int viewportWidth, int viewportHeight) {
         this.viewportWidth = viewportWidth;
         this.viewportHeight = viewportHeight;
@@ -93,6 +101,8 @@ public class Camara {
         if (Math.abs(desiredY - y) < 0.1) y = desiredY;
     }
 
+    /** Posición X de la cámara en píxeles del mundo. */
     public double getX() { return x; }
+    /** Posición Y de la cámara en píxeles del mundo. */
     public double getY() { return y; }
 }

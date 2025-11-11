@@ -5,16 +5,28 @@ import java.awt.BorderLayout;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 
+/**
+ * Ventana principal del juego Mine2D.
+ *
+ * <p>Configura el {@link Panel} de renderizado y controla el ciclo de vida del juego
+ * iniciando el loop al abrir la ventana y deteniéndolo al cerrarla.</p>
+ */
 public class Main extends JFrame {
 
     private static final String TITULO = "Mine2D";
+    /** Ancho de la ventana en píxeles. */
     public static final int ANCHO = 1200;
+    /** Alto de la ventana en píxeles. */
     public static final int ALTO = 800;
 
+    /** Crea y configura la ventana de juego. */
     public Main() {
         init();
     }
 
+    /**
+     * Inicializa propiedades de la ventana y registra listeners de ciclo de vida.
+     */
     private void init() {
 
         // Definir propiedades de la ventana
@@ -47,6 +59,10 @@ public class Main extends JFrame {
 
     }
 
+    /**
+     * Punto de entrada de la aplicación.
+     * @param args argumentos de línea de comandos (no usados)
+     */
     public static void main(String[] args) {
         // Crear y mostrar la ventana principal
         Main main = new Main();

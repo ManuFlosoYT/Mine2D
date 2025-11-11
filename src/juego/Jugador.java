@@ -12,6 +12,12 @@ import java.io.File;
 import java.net.URL;
 import java.util.List;
 
+/**
+ * Entidad controlable por el usuario que se desplaza y salta en el mundo.
+ *
+ * <p>Incluye un modelo simple de física 2D: aceleración/fricción horizontal, gravedad,
+ * salto con jump buffer y coyote time, y colisiones AABB contra bloques sólidos.</p>
+ */
 public class Jugador {
     // Un bloque mide 64px (consultamos BasicBlock.getSize())
     private static final double BLOCK_SIZE = BasicBlock.getSize();
@@ -42,6 +48,7 @@ public class Jugador {
 
     private boolean enSuelo;
 
+    /** Crea una instancia del jugador y carga su sprite. */
     public Jugador() {
         sprite = cargarImagen();
     }
@@ -59,6 +66,7 @@ public class Jugador {
         throw new IllegalStateException("No se pudo cargar la imagen: " + path + " (normalizado: " + path + ")" );
     }
 
+    /** Dibuja el sprite del jugador en su posición actual. */
     public void draw(Graphics2D g) {
         AffineTransform at = g.getTransform();
         g.translate(x, y);
@@ -67,24 +75,35 @@ public class Jugador {
         g.setTransform(at);
     }
 
+    /** Posición X (píxeles del mundo). */
     public double getX() { return x; }
+    /** Posición Y (píxeles del mundo). */
     public double getY() { return y; }
 
+    /** Alto visual/colisional del jugador en píxeles. */
     public int getAltoPx(){
         return (int) HEIGHT; // altura del sprite (1.8 bloques)
     }
 
+    /** Coloca al jugador en la posición indicada. */
     public void colocar(Punto p){
         this.x = p.x();
         this.y = p.y();
     }
 
-    // Nuevo: bounds para colisión
+    /**
+     * Rectángulo de colisión del jugador en píxeles del mundo.
+     */
     public Rectangle2D getBounds() {
         return new Rectangle2D.Double(x, y, WIDTH, HEIGHT);
     }
 
-    // Update recibe lista de bloques para colisión
+    /**
+     * Actualiza el estado del jugador: procesa input, integra física y resuelve colisiones.
+     * @param input estado de entrada (teclas)
+     * @param dt delta de tiempo en segundos
+     * @param bloques lista de bloques cercanos para pruebas de colisión
+     */
     public void update(Input input, double dt, List<BasicBlock> bloques){
         // --- INPUT: izquierda/derecha ---
         boolean left = input.isKeyA();

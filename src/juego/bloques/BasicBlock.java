@@ -9,6 +9,12 @@ import java.awt.geom.Rectangle2D;
 import java.io.File;
 import java.net.URL;
 
+/**
+ * Bloque básico del mundo, renderizable y colisionable.
+ *
+ * <p>Cada bloque tiene un identificador (ID) que determina su sprite y su dureza
+ * (tiempo necesario para romperlo). Su posición se almacena en píxeles del mundo.</p>
+ */
 public class BasicBlock {
 
     private static final double SIZE = 64; // tamaño del sprite en píxeles
@@ -17,6 +23,11 @@ public class BasicBlock {
     private final String blockID;
     private final double dureza; // segundos necesarios de mantener click para romper
 
+    /**
+     * Crea un bloque de tipo dado en la posición indicada.
+     * @param blockID identificador (p.ej. "stone", "dirt")
+     * @param p posición en píxeles del mundo (esquina superior izquierda del bloque)
+     */
     public BasicBlock(String blockID, Punto p) {
         this.blockID = blockID;
         this.sprite = cargarImagen("assets/blocks/" + blockID + ".png");
@@ -24,6 +35,9 @@ public class BasicBlock {
         this.dureza = calcularDureza(blockID);
     }
 
+    /**
+     * Tamaño del bloque en píxeles de lado.
+     */
     public static double getSize() {
         return SIZE;
     }
@@ -41,6 +55,9 @@ public class BasicBlock {
         throw new IllegalStateException("No se pudo cargar la imagen del bloque: " + path);
     }
 
+    /**
+     * Dibuja el bloque en la posición indicada.
+     */
     public void draw(Graphics2D g) {
         AffineTransform at = g.getTransform();
         g.translate(p.x(), p.y());
@@ -48,6 +65,9 @@ public class BasicBlock {
         g.setTransform(at);
     }
 
+    /**
+     * Dureza en segundos necesarios de "minado" continuo para romper el bloque.
+     */
     public double getDureza() { return dureza; }
 
     private double calcularDureza(String id) {
@@ -62,6 +82,7 @@ public class BasicBlock {
     }
 
     // --- Nuevos helpers de colisión ---
+    /** Rectángulo de colisión del bloque en píxeles del mundo. */
     public Rectangle2D getBounds() {
         return new Rectangle2D.Double(p.x(), p.y(), SIZE, SIZE);
     }
