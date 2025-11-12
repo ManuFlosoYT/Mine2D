@@ -40,8 +40,12 @@ public class Panel extends JComponent {
     private Renderer renderer;
     private GameLoop loop;
 
-    private static final int ANCHO_MUNDO = 1024;
-    private static final int ALTO_MUNDO = 128;
+    // Tamaño del mundo configurable
+    private static final int DEFAULT_ANCHO_MUNDO = 1024;
+    private static final int DEFAULT_ALTO_MUNDO = 128;
+    private int worldWidth = DEFAULT_ANCHO_MUNDO;
+    private int worldHeight = DEFAULT_ALTO_MUNDO;
+
     private static final File DEBUG_WORLD_FILE = new File("world.wgz");
 
     private final GameState gameState = new GameState();
@@ -51,6 +55,17 @@ public class Panel extends JComponent {
     private final Listener listener;
 
     private volatile boolean vsyncEnabled = true; // limitar FPS (VSync simulado)
+
+    /** Permite configurar el tamaño del mundo a generar al iniciar nueva partida. Llamar antes de start(). */
+    public void setWorldSize(int width, int height) {
+        // Forzar mínimos requeridos
+        int w = width > 0 ? width : 0;
+        int h = height > 0 ? height : 0;
+        if (w < 256) w = 256;
+        if (h < 128) h = 128;
+        this.worldWidth = w;
+        this.worldHeight = h;
+    }
 
     /** Inicia el juego y sus subsistemas. */
     public void start() {
@@ -90,9 +105,13 @@ public class Panel extends JComponent {
 
     private void initGame(){
         jugador = new Jugador();
-        double startX = (double)(TAM_BLOQUE * ANCHO_MUNDO) / 2;
-        jugador.colocar(new tipos.Punto(startX, 64 * TAM_BLOQUE - jugador.getAltoPx()));
-        mundo = GeneradorMundo.generar(ANCHO_MUNDO, ALTO_MUNDO, 0, 0);
+        double startX = (double)(TAM_BLOQUE * worldWidth) / 2;
+        // Generar mundo antes de colocar al jugador para poder buscar el suelo
+        mundo = GeneradorMundo.generar(worldWidth, worldHeight, 0, 0);
+        // Colocar al jugador justo sobre el bloque más alto (suelo) bajo startX
+        double spawnY = computeGroundSpawnY(mundo, startX) - jugador.getAltoPx();
+        if (Double.isNaN(spawnY)) spawnY = 0; // fallback defensivo
+        jugador.colocar(new tipos.Punto(startX, spawnY));
         camara = new Camara(ancho, alto);
         camara.update(jugador, mundo, 0);
         hud = new HudDebug();
@@ -103,6 +122,25 @@ public class Panel extends JComponent {
             editorMundo.setMundo(mundo);
         }
         if (renderer == null) renderer = new Renderer();
+    }
+
+    /** Devuelve la coordenada Y (en píxeles) de la parte superior del bloque más alto en la columna de xPx.
+     * Si no hay bloques en esa columna, devuelve 0. */
+    private double computeGroundSpawnY(BasicBlock[][] grid, double xPx) {
+        if (grid == null || grid.length == 0 || grid[0].length == 0) return 0;
+        int anchoTiles = grid[0].length;
+        int altoTiles = grid.length;
+        double size = BasicBlock.getSize();
+        int tileX = (int)Math.floor(xPx / size);
+        if (tileX < 0) tileX = 0; else if (tileX >= anchoTiles) tileX = anchoTiles - 1;
+        // Buscar desde arriba hacia abajo el primer bloque no nulo (el "suelo" visible)
+        for (int arrayY = altoTiles - 1; arrayY >= 0; arrayY--) {
+            BasicBlock b = grid[arrayY][tileX];
+            if (b != null) {
+                return b.getBounds().getY(); // top del bloque
+            }
+        }
+        return 0; // columna vacía
     }
 
     /** Guardar estado del mundo a archivo. */

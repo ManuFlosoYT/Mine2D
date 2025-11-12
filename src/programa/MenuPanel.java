@@ -5,12 +5,13 @@ import javax.swing.*;
 import java.awt.*;
 
 /**
- * Menú principal simple con dos botones: Jugar y Salir.
+ * Menú principal simple con tres botones: Jugar, Nuevo mundo y Salir.
  */
 public class MenuPanel extends JPanel {
 
     public interface Listener {
         void onPlayRequested();
+        void onNewWorldRequested();
         void onExitRequested();
     }
 
@@ -37,10 +38,16 @@ public class MenuPanel extends JPanel {
         title.setFont(title.getFont().deriveFont(Font.BOLD, 48f));
         title.setForeground(new Color(230, 230, 230));
 
-        JButton play = new JButton("Jugar");
+        JButton play = new JButton("Jugar (cargar partida)");
         play.setFont(play.getFont().deriveFont(Font.BOLD, 24f));
         play.addActionListener(e -> {
             if (listener != null) listener.onPlayRequested();
+        });
+
+        JButton newWorld = new JButton("Nuevo mundo...");
+        newWorld.setFont(newWorld.getFont().deriveFont(Font.PLAIN, 20f));
+        newWorld.addActionListener(e -> {
+            if (listener != null) listener.onNewWorldRequested();
         });
 
         JButton exit = new JButton("Salir");
@@ -51,6 +58,7 @@ public class MenuPanel extends JPanel {
 
         box.add(title);
         box.add(play);
+        box.add(newWorld);
         box.add(exit);
 
         add(box, gbc);
@@ -58,4 +66,3 @@ public class MenuPanel extends JPanel {
         setBackground(new Color(30, 30, 30));
     }
 }
-

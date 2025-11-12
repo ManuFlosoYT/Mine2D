@@ -2,6 +2,7 @@ package programa;
 
 import javax.swing.JFrame;
 import javax.swing.JPanel;
+import javax.swing.JOptionPane;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.event.WindowAdapter;
@@ -10,9 +11,10 @@ import java.awt.event.WindowEvent;
 /**
  * Ventana principal del juego Mine2D.
  *
- * <p>Configura un menú principal con opciones de "Jugar" y "Salir". Al pulsar
- * "Jugar" se crea el {@link Panel} de juego y se inicia el loop; al cerrar la
- * ventana se detiene el juego si está en marcha.</p>
+ * <p>Configura un menú principal con opciones de "Jugar", "Nuevo mundo" y "Salir". Al pulsar
+ * "Jugar" se crea el {@link Panel} de juego y se inicia el loop; si existe el archivo world.wgz,
+ * se carga la partida guardada. "Nuevo mundo" pregunta dimensiones (X e Y) y crea un mundo nuevo
+ * sin cargar el guardado.</p>
  */
 public class Main extends JFrame {
 
@@ -33,20 +35,13 @@ public class Main extends JFrame {
     private boolean gameStarted = false;
 
     /** Crea y configura la ventana de juego. */
-    public Main() {
-        init();
-    }
+    public Main() { init(); }
 
-    /**
-     * Inicializa propiedades de la ventana y registra listeners de ciclo de vida.
-     */
+    /** Inicializa propiedades de la ventana y registra listeners de ciclo de vida. */
     private void init() {
-
-        // Definir propiedades de la ventana
         setTitle(TITULO);
         setSize(ANCHO, ALTO);
         setResizable(false);
-
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
 
@@ -58,9 +53,15 @@ public class Main extends JFrame {
         menuPanel = new MenuPanel(new MenuPanel.Listener() {
             @Override
             public void onPlayRequested() {
-                startGameIfNeeded();
+                startGameWithLoadSaved();
             }
-
+            @Override
+            public void onNewWorldRequested() {
+                int[] dims = promptWorldSize();
+                if (dims != null) {
+                    startGameNewWorld(dims[0], dims[1]);
+                }
+            }
             @Override
             public void onExitRequested() {
                 dispatchEvent(new WindowEvent(Main.this, WindowEvent.WINDOW_CLOSING));
@@ -68,7 +69,7 @@ public class Main extends JFrame {
         });
 
         root.add(menuPanel, CARD_MENU);
-        // No creamos el gamePanel aún; se construye al pulsar Jugar
+        // No creamos el gamePanel aún; se construye al pulsar una opción
 
         setLayout(new BorderLayout());
         setContentPane(root);
@@ -80,7 +81,6 @@ public class Main extends JFrame {
                 // Mostrar primero el menú
                 showMenu();
             }
-
             @Override
             public void windowClosing(WindowEvent e) {
                 if (gamePanel != null) {
@@ -88,7 +88,6 @@ public class Main extends JFrame {
                 }
             }
         });
-
     }
 
     private void showMenu() {
@@ -103,7 +102,7 @@ public class Main extends JFrame {
         }
     }
 
-    private void startGameIfNeeded() {
+    private void startGameWithLoadSaved() {
         if (!gameStarted) {
             gamePanel = new Panel(() -> {
                 // salida al menú desde pausa
@@ -122,19 +121,56 @@ public class Main extends JFrame {
             gameStarted = true;
         } else {
             showGame();
-            // Si se regresa al juego y aún no se cargó (caso improbable), intentar cargar
             gamePanel.cargarPartidaGuardada();
         }
     }
 
-    /**
-     * Punto de entrada de la aplicación.
-     * @param args argumentos de línea de comandos (no usados)
-     */
+    private void startGameNewWorld(int anchoMundo, int altoMundo) {
+        if (!gameStarted) {
+            gamePanel = new Panel(() -> {
+                root.remove(gamePanel);
+                gamePanel = null;
+                gameStarted = false;
+                showMenu();
+                root.revalidate();
+                root.repaint();
+            });
+            // Configurar tamaño del mundo antes de iniciar
+            gamePanel.setWorldSize(anchoMundo, altoMundo);
+            root.add(gamePanel, CARD_GAME);
+            showGame();
+            gamePanel.start();
+            // No cargar partida guardada: es un mundo nuevo
+            gameStarted = true;
+        } else {
+            // Si ya hubiera un juego (caso raro al estar en menú), simplemente mostrar
+            showGame();
+        }
+    }
+
+    /** Dialoga con el usuario para obtener ancho (X) y alto (Y) del nuevo mundo. */
+    private int[] promptWorldSize() {
+        String sx = JOptionPane.showInputDialog(this, "Tamaño en X (ancho en bloques)", "1024");
+        if (sx == null) return null; // cancelado
+        String sy = JOptionPane.showInputDialog(this, "Tamaño en Y (alto en bloques)", "128");
+        if (sy == null) return null; // cancelado
+        try {
+            int w = Integer.parseInt(sx.trim());
+            int h = Integer.parseInt(sy.trim());
+            if (w <= 0 || h <= 0) throw new NumberFormatException("Valores deben ser > 0");
+            // Opcional: límites razonables para evitar cuelgues
+            if (w > 10000) w = 10000;
+            if (h > 2048) h = 2048;
+            return new int[]{ w, h };
+        } catch (NumberFormatException ex) {
+            JOptionPane.showMessageDialog(this, "Valores inválidos. Introduce enteros positivos.", "Error", JOptionPane.ERROR_MESSAGE);
+            return null;
+        }
+    }
+
+    /** Punto de entrada de la aplicación. */
     public static void main(String[] args) {
-        // Crear y mostrar la ventana principal
         Main main = new Main();
         main.setVisible(true);
     }
-
 }

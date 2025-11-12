@@ -145,11 +145,13 @@ public class EditorMundo {
         int pMaxX = (int) Math.floor((pb.getX() + pb.getWidth() - eps) / size);
         int pMaxY = (int) Math.floor((pb.getY() + pb.getHeight() - eps) / size);
 
-        // Área de interacción: expandir 1 tile a cada lado horizontal y vertical
-        int areaMinX = pMinX - 1;
-        int areaMaxX = pMaxX + 1;
-        int areaMinY = pMinY - 1;
-        int areaMaxY = pMaxY + 1; // (jugador 2 tiles alto +1 arriba +1 abajo = 4)
+        // Área de interacción:
+        // Horizontal: se mantiene 2 bloques de alcance lateral.
+        // Vertical: se aumenta a 2 bloques por encima y por debajo del volumen del jugador.
+        int areaMinX = pMinX - 2;
+        int areaMaxX = pMaxX + 2;
+        int areaMinY = pMinY - 2;
+        int areaMaxY = pMaxY + 2;
 
         // Fuera del área
         if (tileX < areaMinX || tileX > areaMaxX || tileY < areaMinY || tileY > areaMaxY) return false;
