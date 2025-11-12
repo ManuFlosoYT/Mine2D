@@ -55,6 +55,7 @@ public class Panel extends JComponent {
     private final Listener listener;
 
     private volatile boolean vsyncEnabled = true; // limitar FPS (VSync simulado)
+    private volatile double renderScale = 1.0; // factor de escala de mundo -> pantalla
 
     /** Permite configurar el tamaño del mundo a generar al iniciar nueva partida. Llamar antes de start(). */
     public void setWorldSize(int width, int height) {
@@ -67,6 +68,8 @@ public class Panel extends JComponent {
         this.worldHeight = h;
     }
 
+    public double getRenderScale() { return renderScale; }
+
     /** Inicia el juego y sus subsistemas. */
     public void start() {
         ancho = getWidth();
@@ -75,6 +78,8 @@ public class Panel extends JComponent {
             ancho = Main.ANCHO;
             alto = Main.ALTO;
         }
+        // Escala basada en altura para mantener el tamaño aparente del bloque
+        renderScale = (double) alto / Main.ALTO;
         image = new BufferedImage(ancho, alto, BufferedImage.TYPE_INT_ARGB);
         graphics = image.createGraphics();
         graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -112,12 +117,16 @@ public class Panel extends JComponent {
         double spawnY = computeGroundSpawnY(mundo, startX) - jugador.getAltoPx();
         if (Double.isNaN(spawnY)) spawnY = 0; // fallback defensivo
         jugador.colocar(new tipos.Punto(startX, spawnY));
-        camara = new Camara(ancho, alto);
+        // La cámara debe usar el viewport en píxeles de mundo (pantalla dividida por escala)
+        int vpWWorldPx = (int)Math.round(ancho / renderScale);
+        int vpHWorldPx = (int)Math.round(alto / renderScale);
+        camara = new Camara(vpWWorldPx, vpHWorldPx);
         camara.update(jugador, mundo, 0);
         hud = new HudDebug();
-        MundoHelper.actualizarBloquesVisibles(bloquesVisibles, mundo, camara, ancho, alto);
+        // Calcular visibles con dimensiones del viewport en mundo
+        MundoHelper.actualizarBloquesVisibles(bloquesVisibles, mundo, camara, vpWWorldPx, vpHWorldPx);
         if (editorMundo == null) {
-            editorMundo = new EditorMundo(mundo, camara, this, jugador, gameState::isPaused, gameState::awaitIfPaused);
+            editorMundo = new EditorMundo(mundo, camara, this, jugador, gameState::isPaused, gameState::awaitIfPaused, this::getRenderScale);
         } else {
             editorMundo.setMundo(mundo);
         }
@@ -187,7 +196,9 @@ public class Panel extends JComponent {
             if (editorMundo != null) editorMundo.setMundo(mundo);
             if (data.jugadorPos() != null) jugador.colocar(data.jugadorPos());
             camara.update(jugador, mundo, 0);
-            MundoHelper.actualizarBloquesVisibles(bloquesVisibles, mundo, camara, ancho, alto);
+            int vpWWorldPx = (int)Math.round(ancho / renderScale);
+            int vpHWorldPx = (int)Math.round(alto / renderScale);
+            MundoHelper.actualizarBloquesVisibles(bloquesVisibles, mundo, camara, vpWWorldPx, vpHWorldPx);
         } catch (IOException e) {
             System.err.println("Error cargando partida guardada: " + e.getMessage());
         }

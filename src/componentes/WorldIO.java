@@ -10,138 +10,149 @@ import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
 /**
- * Entrada/Salida de mundos a un formato de texto simple para depuración.
+ * Entrada/Salida de mundos en formato comprimido (RLE + GZIP) con diccionario de IDs.
  *
- * Formato sin comprimir:
- * - Línea 1: ancho alto (enteros)
- * - Resto: alto líneas, cada una con ancho tokens separados por comas. Cada token es:
- *   id (p.ej. stone) para bloque, o . para aire.
- * - Opcional: última línea "#PLAYER x y".
- *
- * Formato comprimido (RLE + GZIP):
- * - Primera línea: modo ancho alto, donde modo=0 (ROW) o modo=1 (COL).
- * - Si ROW: cada fila se codifica en segmentos token*count separados por ';'.
+ * Formato comprimido:
+ * - Primera línea: modo ancho alto [|id=ch;id=ch;...|], donde modo=0 (ROW) o modo=1 (COL).
+ * - Si ROW: cada fila se codifica en segmentos ch*count separados por ';'.
  * - Si COL: cada columna X se codifica igual, en orden 0..ancho-1.
- * - Admite meta-RLE de líneas: N*LINE para repetir LINE N veces.
- * - Línea opcional #PLAYER al final.
+ * - Soporta meta-RLE de líneas: N*LINE para repetir LINE N veces.
+ * - Última línea opcional: "x y" con la posición del jugador.
  */
 public final class WorldIO {
     private WorldIO() {}
 
-    public static void save(File file, BasicBlock[][] mundo) throws IOException { save(file, mundo, null); }
+    // Caracter reservado para aire
+    private static final char AIR_CHAR = '.';
+    // Delimitadores diccionario
+    private static final char DICT_START = '|';
+    private static final char DICT_END = '|';
 
-    /** Guarda mundo sin comprimir y opcionalmente posición del jugador. */
-    public static void save(File file, BasicBlock[][] mundo, Punto jugadorPos) throws IOException {
-        try (BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8))) {
-            if (mundo == null || mundo.length == 0) { bw.write("0 0\n"); return; }
-            int alto = mundo.length; int ancho = mundo[0].length;
-            bw.write(ancho + " " + alto + "\n");
-            for (int arrayY = 0; arrayY < alto; arrayY++) {
-                StringBuilder sb = new StringBuilder();
-                for (int x = 0; x < ancho; x++) {
-                    BasicBlock b = mundo[arrayY][x];
-                    if (x > 0) sb.append(',');
-                    sb.append(b == null ? '.' : b.getId());
-                }
-                bw.write(sb.toString()); bw.write('\n');
+    /** Construye un diccionario id->char determinista y compacto. */
+    private static java.util.Map<String, Character> buildDictionary(BasicBlock[][] mundo) {
+        java.util.LinkedHashSet<String> ids = new java.util.LinkedHashSet<>();
+        if (mundo != null) {
+            for (BasicBlock[] fila : mundo) {
+                if (fila == null) continue;
+                for (BasicBlock b : fila) { if (b != null) ids.add(b.getId()); }
             }
-            if (jugadorPos != null) { bw.write("#PLAYER " + jugadorPos.x() + " " + jugadorPos.y() + "\n"); }
         }
+        // Cadena de caracteres disponibles (evitar '.', '*', ';', '#', '|', ',', '=')
+        String pool = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!$%&()+-<>?@^{}_";
+        java.util.Map<String, Character> map = new java.util.LinkedHashMap<>();
+        int i = 0;
+        for (String id : ids) {
+            if (i >= pool.length()) throw new IllegalStateException("Demasiados tipos de bloque para diccionario (max="+pool.length()+")");
+            map.put(id, pool.charAt(i++));
+        }
+        return map;
     }
 
-    public static BasicBlock[][] load(File file) throws IOException { return loadWithPlayer(file).mundo(); }
-
-    /** Carga mundo sin comprimir y posición de jugador si existe. */
-    public static WorldData loadWithPlayer(File file) throws IOException {
-        try (BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8))) {
-            String header = br.readLine();
-            if (header == null || header.isEmpty()) return new WorldData(new BasicBlock[0][0], null);
-            StringTokenizer st = new StringTokenizer(header); int ancho = Integer.parseInt(st.nextToken()); int alto = Integer.parseInt(st.nextToken());
-            BasicBlock[][] mundo = new BasicBlock[alto][ancho]; double size = BasicBlock.getSize();
-            for (int arrayY = 0; arrayY < alto; arrayY++) {
-                String line = br.readLine(); if (line == null) break; if (line.startsWith("#")) { arrayY--; continue; }
-                String[] tokens = line.split(",");
-                for (int x = 0; x < Math.min(ancho, tokens.length); x++) {
-                    String t = tokens[x].trim(); if (t.equals(".")) { mundo[arrayY][x] = null; } else if (!t.isEmpty()) {
-                        int tileYTop = alto - 1 - arrayY; mundo[arrayY][x] = new BasicBlock(t, new Punto(x * size, tileYTop * size)); }
-                }
-            }
-            Punto jugadorPos = null; String line; while ((line = br.readLine()) != null) {
-                line = line.trim(); if (line.startsWith("#PLAYER")) { StringTokenizer pst = new StringTokenizer(line.substring(7).trim()); if (pst.hasMoreTokens()) { double x = Double.parseDouble(pst.nextToken()); double y = pst.hasMoreTokens() ? Double.parseDouble(pst.nextToken()) : 0.0; jugadorPos = new Punto(x, y); } }
-            }
-            return new WorldData(mundo, jugadorPos);
+    /** Formatea el diccionario para cabecera: |id=ch;id=ch;...| */
+    private static String formatDictionary(java.util.Map<String, Character> dict) {
+        if (dict == null || dict.isEmpty()) return ""; // sin diccionario => se asumirá aire/IDs desconocidos como aire
+        StringBuilder sb = new StringBuilder(); sb.append(DICT_START);
+        boolean first = true;
+        for (var e : dict.entrySet()) {
+            if (!first) sb.append(';'); first = false;
+            sb.append(e.getKey()).append('=').append(e.getValue());
         }
+        sb.append(DICT_END);
+        return sb.toString();
     }
 
-    // --- COMPRESIÓN RLE ---
-    private static String rleEncodeRow(BasicBlock[] fila) {
+    /** Parsea el diccionario de la cabecera si existe. */
+    private static java.util.Map<Character,String> parseDictionary(String header) {
+        int start = header.indexOf(DICT_START);
+        int end = header.lastIndexOf(DICT_END);
+        java.util.Map<Character,String> map = new java.util.HashMap<>();
+        if (start >= 0 && end > start) {
+            String inner = header.substring(start+1, end).trim();
+            if (!inner.isEmpty()) {
+                String[] parts = inner.split(";");
+                for (String p : parts) {
+                    int eq = p.indexOf('='); if (eq <= 0 || eq >= p.length()-1) continue;
+                    String id = p.substring(0, eq).trim();
+                    char ch = p.charAt(eq+1);
+                    if (ch != AIR_CHAR) map.put(ch, id);
+                }
+            }
+        }
+        return map;
+    }
+
+    // --- UTILIDADES RLE ---
+    private static String rleEncodeRowChars(char[] fila) {
         StringBuilder sb = new StringBuilder();
         int n = fila.length; int i = 0;
         while (i < n) {
-            BasicBlock b = fila[i]; String id = (b == null ? "." : b.getId()); int run = 1; i++;
-            while (i < n) { BasicBlock nb = fila[i]; String nid = (nb == null ? "." : nb.getId()); if (!nid.equals(id)) break; run++; i++; }
-            if (sb.length() > 0) sb.append(';'); sb.append(id).append('*').append(run);
+            char ch = fila[i]; int run = 1; i++;
+            while (i < n && fila[i] == ch) { run++; i++; }
+            if (sb.length() > 0) sb.append(';'); sb.append(ch).append('*').append(run);
         }
         return sb.toString();
     }
-
-    private static String rleEncodeColumn(BasicBlock[][] mundo, int x) {
+    private static String rleEncodeColumnChars(char[][] mundoChars, int x) {
         StringBuilder sb = new StringBuilder();
-        int alto = mundo.length; int y = 0;
+        int alto = mundoChars.length; int y = 0;
         while (y < alto) {
-            BasicBlock b = mundo[y][x]; String id = (b == null ? "." : b.getId()); int run = 1; y++;
-            while (y < alto) { BasicBlock nb = mundo[y][x]; String nid = (nb == null ? "." : nb.getId()); if (!nid.equals(id)) break; run++; y++; }
-            if (sb.length() > 0) sb.append(';'); sb.append(id).append('*').append(run);
+            char ch = mundoChars[y][x]; int run = 1; y++;
+            while (y < alto && mundoChars[y][x] == ch) { run++; y++; }
+            if (sb.length() > 0) sb.append(';'); sb.append(ch).append('*').append(run);
         }
         return sb.toString();
     }
-
-    private static void rleDecodeRow(String line, BasicBlock[] fila, int arrayY, int alto, double size) {
+    private static void rleDecodeRowChars(String line, char[] fila) {
         String[] segments = line.split(";"); int x = 0;
         for (String seg : segments) {
             if (seg.isEmpty()) continue; int star = seg.lastIndexOf('*'); if (star <= 0) continue;
-            String id = seg.substring(0, star); int count = Integer.parseInt(seg.substring(star+1));
-            for (int k = 0; k < count && x < fila.length; k++) {
-                if (!id.equals(".")) { int tileYTop = alto - 1 - arrayY; fila[x] = new BasicBlock(id, new Punto(x * size, tileYTop * size)); } else { fila[x] = null; }
-                x++;
-            }
-            if (x >= fila.length) break;
+            char ch = seg.charAt(0); // antes de '*'
+            int count = Integer.parseInt(seg.substring(star+1));
+            for (int k = 0; k < count && x < fila.length; k++) { fila[x++] = ch; }
         }
-        while (x < fila.length) { fila[x++] = null; }
+        while (x < fila.length) fila[x++] = AIR_CHAR;
     }
-
-    private static void rleDecodeColumn(String line, BasicBlock[][] mundo, int x, int alto, double size) {
+    private static void rleDecodeColumnChars(String line, char[][] mundoChars, int x) {
         String[] segments = line.split(";"); int y = 0;
         for (String seg : segments) {
             if (seg.isEmpty()) continue; int star = seg.lastIndexOf('*'); if (star <= 0) continue;
-            String id = seg.substring(0, star); int count = Integer.parseInt(seg.substring(star+1));
-            for (int k = 0; k < count && y < alto; k++) {
-                if (!id.equals(".")) { int tileYTop = alto - 1 - y; mundo[y][x] = new BasicBlock(id, new Punto(x * size, tileYTop * size)); } else { mundo[y][x] = null; }
-                y++;
-            }
-            if (y >= alto) break;
+            char ch = seg.charAt(0); int count = Integer.parseInt(seg.substring(star+1));
+            for (int k = 0; k < count && y < mundoChars.length; k++) { mundoChars[y][x] = ch; y++; }
         }
-        while (y < alto) { mundo[y++][x] = null; }
+        while (y < mundoChars.length) mundoChars[y++][x] = AIR_CHAR;
     }
 
-    /** Guarda el mundo comprimido (RLE + GZIP) y posición del jugador si se provee.
-     * Escribe en la cabecera un flag de modo: 0 (ROW) o 1 (COL). Aplica meta-RLE de líneas N*LINE. */
+    /** Guarda el mundo comprimido (RLE + GZIP) y posición del jugador; añade diccionario en cabecera. */
     public static void saveCompressed(File file, BasicBlock[][] mundo, Punto jugadorPos) throws IOException {
         try (GZIPOutputStream gz = new GZIPOutputStream(new FileOutputStream(file)); BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(gz, StandardCharsets.UTF_8))) {
             if (mundo == null || mundo.length == 0) { bw.write("0 0\n"); return; }
             int alto = mundo.length; int ancho = mundo[0].length;
-            // Precalcular representaciones
+            var dict = buildDictionary(mundo);
+            String dictHeader = formatDictionary(dict);
+            // Convertir mundo a matriz de chars
+            char[][] mundoChars = new char[alto][ancho];
+            for (int y = 0; y < alto; y++) {
+                for (int x = 0; x < ancho; x++) {
+                    BasicBlock b = mundo[y][x];
+                    char out = AIR_CHAR;
+                    if (b != null) {
+                        Character ch = dict.get(b.getId());
+                        out = (ch != null ? ch : AIR_CHAR);
+                    }
+                    mundoChars[y][x] = out;
+                }
+            }
+            // Decidir modo (filas/columnas) usando longitud RLE char
             java.util.List<String> rowLines = new java.util.ArrayList<>();
-            for (int arrayY = 0; arrayY < alto; arrayY++) { rowLines.add(rleEncodeRow(mundo[arrayY])); }
+            for (int arrayY = 0; arrayY < alto; arrayY++) { rowLines.add(rleEncodeRowChars(mundoChars[arrayY])); }
             java.util.List<String> colLines = new java.util.ArrayList<>();
-            for (int x = 0; x < ancho; x++) { colLines.add(rleEncodeColumn(mundo, x)); }
+            for (int x = 0; x < ancho; x++) { colLines.add(rleEncodeColumnChars(mundoChars, x)); }
             int rowChars = rowLines.stream().mapToInt(s -> s.length() + 1).sum();
             int colChars = colLines.stream().mapToInt(s -> s.length() + 1).sum();
             boolean useCol = colChars < rowChars;
             int modeFlag = useCol ? 1 : 0;
-            // Cabecera: modo ancho alto
-            bw.write(modeFlag + " " + ancho + " " + alto + "\n");
-            // Meta-RLE de líneas
+            // Cabecera: modo ancho alto [diccionario]
+            bw.write(modeFlag + " " + ancho + " " + alto + (dictHeader.isEmpty()?"":" " + dictHeader) + "\n");
             java.util.List<String> source = useCol ? colLines : rowLines;
             int i = 0;
             while (i < source.size()) {
@@ -155,7 +166,7 @@ public final class WorldIO {
         }
     }
 
-    /** Carga mundo comprimido (RLE + GZIP) y posición de jugador. Cabecera estricta: modo ancho alto (modo=0 filas, 1 columnas). */
+    /** Carga mundo comprimido (RLE + GZIP) y posición de jugador. Soporta diccionario opcional. */
     public static WorldData loadCompressedWithPlayer(File file) throws IOException {
         try (GZIPInputStream gz = new GZIPInputStream(new FileInputStream(file)); BufferedReader br = new BufferedReader(new InputStreamReader(gz, StandardCharsets.UTF_8))) {
             String header = br.readLine();
@@ -166,8 +177,9 @@ public final class WorldIO {
             if (modeFlag != 0 && modeFlag != 1) throw new IOException("Flag de modo inválido (debe ser 0 o 1): " + modeFlag);
             int ancho = Integer.parseInt(st.nextToken());
             int alto = Integer.parseInt(st.nextToken());
+            java.util.Map<Character,String> dictMap = parseDictionary(header);
             BasicBlock[][] mundo = new BasicBlock[alto][ancho];
-            double size = BasicBlock.getSize();
+            char[][] mundoChars = new char[alto][ancho];
             String line = null;
             if (modeFlag == 1) { // COL
                 int x = 0;
@@ -179,13 +191,13 @@ public final class WorldIO {
                             int repeat = Integer.parseInt(line.substring(0, starPos));
                             String encoded = line.substring(starPos + 1);
                             for (int r = 0; r < repeat && x < ancho; r++) {
-                                rleDecodeColumn(encoded, mundo, x, alto, size);
+                                rleDecodeColumnChars(encoded, mundoChars, x);
                                 x++;
                             }
                             continue;
-                        } catch (NumberFormatException ignore) { /* tratar como línea normal */ }
+                        } catch (NumberFormatException ignore) { }
                     }
-                    rleDecodeColumn(line, mundo, x, alto, size); x++;
+                    rleDecodeColumnChars(line, mundoChars, x); x++;
                 }
             } else { // ROW
                 int arrayY = 0;
@@ -198,21 +210,35 @@ public final class WorldIO {
                             int repeat = Integer.parseInt(line.substring(0, starPos));
                             String encoded = line.substring(starPos + 1);
                             for (int r = 0; r < repeat && arrayY < alto; r++) {
-                                rleDecodeRow(encoded, mundo[arrayY], arrayY, alto, size);
+                                rleDecodeRowChars(encoded, mundoChars[arrayY]);
                                 arrayY++;
                             }
                             handledGroup = true;
-                        } catch (NumberFormatException ignore) { /* no es meta-RLE */ }
+                        } catch (NumberFormatException ignore) { }
                     }
                     if (!handledGroup) {
-                        rleDecodeRow(line, mundo[arrayY], arrayY, alto, size); arrayY++;
+                        rleDecodeRowChars(line, mundoChars[arrayY]); arrayY++;
                     }
                 }
             }
-            // Leer posición del jugador como "x y" si existe una línea adicional
+            // Convertir chars a bloques
+            double size = BasicBlock.getSize();
+            for (int arrayY = 0; arrayY < alto; arrayY++) {
+                for (int x = 0; x < ancho; x++) {
+                    char c = mundoChars[arrayY][x];
+                    if (c == AIR_CHAR) { mundo[arrayY][x] = null; }
+                    else {
+                        String id = dictMap.get(c);
+                        if (id != null) {
+                            int tileYTop = alto - 1 - arrayY;
+                            mundo[arrayY][x] = new BasicBlock(id, new Punto(x * size, tileYTop * size));
+                        } else { mundo[arrayY][x] = null; }
+                    }
+                }
+            }
+            // Leer posición del jugador
             Punto jugadorPos = null;
-            // Consumir líneas en blanco
-            while ((line = br.readLine()) != null && line.isBlank()) { /* skip */ }
+            while ((line = br.readLine()) != null && line.isBlank()) { }
             if (line != null) {
                 StringTokenizer pst = new StringTokenizer(line.trim());
                 if (pst.hasMoreTokens()) {

@@ -82,12 +82,14 @@ public class GameLoop implements Runnable {
             var cercanos = MundoHelper.obtenerBloquesCercanosJugador(mundo, jugador, 2);
             jugador.update(input, dt, cercanos);
             camara.update(jugador, mundo, dt);
-            MundoHelper.actualizarBloquesVisibles(bloquesVisibles, mundo, camara, panel.getAncho(), panel.getAlto());
+            int vpWWorldPx = (int)Math.round(panel.getAncho() / panel.getRenderScale());
+            int vpHWorldPx = (int)Math.round(panel.getAlto() / panel.getRenderScale());
+            MundoHelper.actualizarBloquesVisibles(bloquesVisibles, mundo, camara, vpWWorldPx, vpHWorldPx);
 
             synchronized (((programa.Panel)panel).getRenderLock()) {
                 Graphics2D g = panel.getOffscreenGraphics();
                 renderer.drawBackground(g, panel.getAncho(), panel.getAlto());
-                renderer.drawGame(g, bloquesVisibles, jugador, camara, editorMundo);
+                renderer.drawGame(g, bloquesVisibles, jugador, camara, editorMundo, panel.getRenderScale());
                 // Actualizar datos del HUD antes de dibujarlo (en bloques, Y invertida: 0 abajo)
                 double size = BasicBlock.getSize();
                 double tx = Math.floor(jugador.getX() / size);
@@ -95,7 +97,7 @@ public class GameLoop implements Runnable {
                 int tileTop = (int)Math.floor(jugador.getY() / size);
                 int yFromBottom = 0;
                 if (altoTiles > 0) {
-                    yFromBottom = altoTiles - 1 - tileTop; // inverso: 0 es abajo
+                    yFromBottom = altoTiles - 1 - tileTop;
                     if (yFromBottom < 0) yFromBottom = 0;
                     if (yFromBottom >= altoTiles) yFromBottom = altoTiles - 1;
                 }

@@ -29,14 +29,19 @@ public class Renderer {
      * @param jugador entidad jugador
      * @param camara cámara para calcular desplazamiento
      * @param editorMundo estado de interacción del editor (hover, rotura)
+     * @param scale factor de escala para el mundo
      */
     public void drawGame(Graphics2D g,
                          List<BasicBlock> bloquesVisibles,
                          Jugador jugador,
                          Camara camara,
-                         EditorMundo editorMundo) {
+                         EditorMundo editorMundo,
+                         double scale) {
         if (g == null || camara == null) return;
-        AffineTransform at = g.getTransform();
+        AffineTransform old = g.getTransform();
+        // Escalar mundo para mantener tamaño aparente del bloque
+        g.scale(scale, scale);
+        // Tras la escala, las traducciones están en píxeles de mundo
         g.translate(-camara.getX(), -camara.getY());
         if (bloquesVisibles != null) {
             for (BasicBlock b : bloquesVisibles) { b.draw(g); }
@@ -87,6 +92,6 @@ public class Renderer {
                 g.drawRect(barX, barY, barWidth, barHeight);
             }
         }
-        g.setTransform(at);
+        g.setTransform(old);
     }
 }

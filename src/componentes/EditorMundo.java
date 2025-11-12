@@ -9,6 +9,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.Rectangle2D;
 import java.util.function.BooleanSupplier;
+import java.util.function.DoubleSupplier;
 
 public class EditorMundo {
     private volatile BasicBlock[][] mundo; // rejilla [fila(y)][col(x)]
@@ -36,6 +37,8 @@ public class EditorMundo {
     private volatile int hoverTileY = Integer.MIN_VALUE;
     private volatile boolean hoverHasBlock = false; // indica si el hover tiene bloque o es aire
 
+    private final DoubleSupplier scaleSupplier; // proveedor de escala de render (>=1)
+
     /**
      * Crea un editor de mundo asociado a la rejilla de bloques y al jugador.
      * @param mundo rejilla de bloques [arrayY][x]
@@ -44,25 +47,27 @@ public class EditorMundo {
      * @param jugador entidad jugador para alcance y línea de visión
      * @param isPausedSupplier proveedor de estado de pausa global (true si está en pausa)
      * @param awaitIfPaused runnable que suspende el hilo hasta reanudar (opcional)
+     * @param scaleSupplier proveedor de escala de render (>=1)
      */
-    public EditorMundo(BasicBlock[][] mundo, Camara camara, JComponent superficie, Jugador jugador, BooleanSupplier isPausedSupplier, Runnable awaitIfPaused) {
+    public EditorMundo(BasicBlock[][] mundo, Camara camara, JComponent superficie, Jugador jugador, BooleanSupplier isPausedSupplier, Runnable awaitIfPaused, DoubleSupplier scaleSupplier) {
         this.mundo = mundo;
         this.camara = camara;
         this.superficie = superficie;
         this.jugador = jugador;
         this.isPausedSupplier = (isPausedSupplier != null) ? isPausedSupplier : () -> false;
         this.awaitIfPaused = (awaitIfPaused != null) ? awaitIfPaused : () -> {};
+        this.scaleSupplier = (scaleSupplier != null) ? scaleSupplier : () -> 1.0;
         instalarMouseListener();
         this.thread = new Thread(this::loop, "WorldEditorThread");
     }
 
     public EditorMundo(BasicBlock[][] mundo, Camara camara, JComponent superficie, Jugador jugador, BooleanSupplier isPausedSupplier) {
-        this(mundo, camara, superficie, jugador, isPausedSupplier, null);
+        this(mundo, camara, superficie, jugador, isPausedSupplier, null, null);
     }
 
     /** Constructor retrocompatible sin pausa (no recomendado). */
     public EditorMundo(BasicBlock[][] mundo, Camara camara, JComponent superficie, Jugador jugador) {
-        this(mundo, camara, superficie, jugador, () -> false, null);
+        this(mundo, camara, superficie, jugador, () -> false, null, null);
     }
 
     /** Inicia el thread de edición */
@@ -83,17 +88,17 @@ public class EditorMundo {
             @Override
             public void mousePressed(MouseEvent e) {
                 if (isPausedSupplier.getAsBoolean()) return; // ignorar input en pausa
+                double scale = Math.max(1.0, scaleSupplier.getAsDouble());
                 if (SwingUtilities.isLeftMouseButton(e)) {
                     leftDown = true;
-                    mouseX = e.getX();
-                    mouseY = e.getY();
+                    mouseX = (int)Math.round(e.getX() / scale);
+                    mouseY = (int)Math.round(e.getY() / scale);
                 } else if (SwingUtilities.isRightMouseButton(e)) {
-                    // Colocación de bloque stone en aire si es interactuable
                     BasicBlock[][] local = mundo;
                     if (local == null) return;
                     double size = BasicBlock.getSize();
-                    int tileX = (int) Math.floor((camara.getX() + e.getX()) / size);
-                    int tileY = (int) Math.floor((camara.getY() + e.getY()) / size);
+                    int tileX = (int) Math.floor((camara.getX() + e.getX() / scale) / size);
+                    int tileY = (int) Math.floor((camara.getY() + e.getY() / scale) / size);
                     if (tileX < 0 || tileY < 0) return;
                     int arrY = local.length - 1 - tileY;
                     if (arrY < 0 || arrY >= local.length || tileX >= local[0].length) return;
@@ -112,15 +117,16 @@ public class EditorMundo {
             @Override
             public void mouseDragged(MouseEvent e) {
                 if (SwingUtilities.isLeftMouseButton(e)) {
-                    mouseX = e.getX();
-                    mouseY = e.getY();
+                    double scale = Math.max(1.0, scaleSupplier.getAsDouble());
+                    mouseX = (int)Math.round(e.getX() / scale);
+                    mouseY = (int)Math.round(e.getY() / scale);
                 }
             }
             @Override
             public void mouseMoved(MouseEvent e) {
-                // Actualizar posición del cursor aunque no haya click
-                mouseX = e.getX();
-                mouseY = e.getY();
+                double scale = Math.max(1.0, scaleSupplier.getAsDouble());
+                mouseX = (int)Math.round(e.getX() / scale);
+                mouseY = (int)Math.round(e.getY() / scale);
             }
             @Override
             public void mouseReleased(MouseEvent e) {
@@ -140,16 +146,13 @@ public class EditorMundo {
     private boolean isTileInteractable(int tileX, int tileY, Rectangle2D pb, double size, BasicBlock[][] world) {
         int pMinX = (int) Math.floor(pb.getX() / size);
         int pMinY = (int) Math.floor(pb.getY() / size);
-        // restamos un epsilon para incluir borde superior/derecho dentro del mismo tile cuando el tamaño es múltiplo exacto
         double eps = 1e-6;
         int pMaxX = (int) Math.floor((pb.getX() + pb.getWidth() - eps) / size);
         int pMaxY = (int) Math.floor((pb.getY() + pb.getHeight() - eps) / size);
 
-        // Área de interacción:
-        // Horizontal: se mantiene 2 bloques de alcance lateral.
-        // Vertical: se aumenta a 2 bloques por encima y por debajo del volumen del jugador.
-        int areaMinX = pMinX - 2;
-        int areaMaxX = pMaxX + 2;
+        // Alcance: horizontal ±1, vertical ±2
+        int areaMinX = pMinX - 1;
+        int areaMaxX = pMaxX + 1;
         int areaMinY = pMinY - 2;
         int areaMaxY = pMaxY + 2;
 
@@ -225,7 +228,6 @@ public class EditorMundo {
     public boolean hoverHasBlock() { return hoverHasBlock; }
 
     private void loop() {
-        final double size = BasicBlock.getSize();
         long last = System.nanoTime();
         while (running) {
             if (isPausedSupplier.getAsBoolean()) {
@@ -248,9 +250,11 @@ public class EditorMundo {
             double dt = (now - last) / 1_000_000_000.0;
             last = now;
 
+            final double size = BasicBlock.getSize();
+
             BasicBlock[][] local = mundo;
             if (local != null) {
-                double worldXHover = camara.getX() + mouseX;
+                double worldXHover = camara.getX() + mouseX; // mouseX ya dividido por escala
                 double worldYHover = camara.getY() + mouseY;
                 int htx = (int)Math.floor(worldXHover / size);
                 int hty = (int)Math.floor(worldYHover / size);
@@ -278,7 +282,7 @@ public class EditorMundo {
             }
 
             if (leftDown && local != null) {
-                double worldX = camara.getX() + mouseX;
+                double worldX = camara.getX() + mouseX; // mouseX/mouseY ya están en coord. mundo
                 double worldY = camara.getY() + mouseY;
                 int tileX = (int) Math.floor(worldX / size);
                 int tileY = (int) Math.floor(worldY / size);
@@ -313,7 +317,6 @@ public class EditorMundo {
                                 targetTileX = Integer.MIN_VALUE;
                                 targetTileY = Integer.MIN_VALUE;
                                 currentDureza = 0.0;
-                                // actualizar hoverHasBlock después de romper
                                 if (hoverTileX == tileX && hoverTileY == tileY) hoverHasBlock = false;
                             }
                         }
@@ -333,7 +336,7 @@ public class EditorMundo {
             }
 
             try { Thread.sleep(10); } catch (InterruptedException e) { if (!running) break; }
-            // Sleep breve para reducir uso de CPU; considerar integrar con game loop para eliminar warning
+            // Sleep breve para reducir uso de CPU
         }
     }
 }

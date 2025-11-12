@@ -7,6 +7,7 @@ import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.awt.*; // para Toolkit y Dimension
 
 /**
  * Ventana principal del juego Mine2D.
@@ -40,10 +41,13 @@ public class Main extends JFrame {
     /** Inicializa propiedades de la ventana y registra listeners de ciclo de vida. */
     private void init() {
         setTitle(TITULO);
-        setSize(ANCHO, ALTO);
+        // Pantalla completa sin decoraciones (forzada por tamaño de pantalla)
+        setUndecorated(true);
+        Dimension screen = Toolkit.getDefaultToolkit().getScreenSize();
+        setBounds(0, 0, screen.width, screen.height);
         setResizable(false);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setLocationRelativeTo(null);
+        // No centrar; ya forzado a (0,0) y tamaño completo
 
         // Contenedor con CardLayout: menú principal y juego
         cardLayout = new CardLayout();

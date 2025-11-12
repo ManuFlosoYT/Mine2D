@@ -24,77 +24,91 @@ public class GeneradorMundo {
      * @return matriz de bloques [arrayY][x] (arrayY=0 es la fila inferior)
      */
     public static BasicBlock[][] generar(int ancho, int alto, double offsetX, double offsetY) {
-        // Clamp mínimo requerido
+        final int WATER_LEVEL = 63; // agua hasta Y=63 inclusive
         if (ancho < 256) ancho = 256;
         if (alto < 128) alto = 128;
-        BasicBlock[][] mundo = new BasicBlock[alto][ancho]; // [arrayY][x] con arrayY=0 abajo
+        BasicBlock[][] mundo = new BasicBlock[alto][ancho];
         final double size = BasicBlock.getSize();
 
-        // --- Perfil de terreno suave por columna (tres octavas, variación moderada) ---
-        double base = Math.max(8, alto * 0.5); // centro del terreno
-        // Amplitudes moderadas
-        double amp1 = Math.max(2, alto * 0.05);
-        double amp2 = Math.max(1, alto * 0.015);
-        double amp3 = Math.max(1, alto * 0.0075);
-        // Periodos más cortos que antes (más variación), pero aún largos
-        double period1 = Math.max(48.0, ancho / 3.0);
-        double period2 = Math.max(96.0, ancho / 1.5);
-        double period3 = Math.max(192.0, ancho);
-        // Fases fijas para reproducibilidad
-        double phi1 = 0.0;
-        double phi2 = 1.3;
-        double phi3 = 2.7;
+        // Ajustes: bajar ligeramente la base para permitir que aparezcan zonas por debajo del agua.
+        // Ahora la base se sitúa al 0.55 de la altura total (antes 0.60) para que la mayoría del terreno quede por encima del agua.
+        double baseFrac = 0.55; // antes 0.60
+        double base = alto * baseFrac;
 
-        int[] hTop = new int[ancho]; // altura superior por columna en coordenada arrayY
-        for (int x = 0; x < ancho; x++) {
-            double t = 2 * Math.PI;
-            double h = base
-                    + amp1 * Math.sin(t * (x / period1) + phi1)
-                    + amp2 * Math.sin(t * (x / period2) + phi2)
-                    + amp3 * Math.sin(t * (x / period3) + phi3);
-            int hi = (int) Math.round(h);
-            if (hi < 4) hi = 4; // evitar terreno demasiado bajo
-            if (hi > alto - 1) hi = alto - 1; // no sobrepasar el mundo
-            hTop[x] = hi;
-        }
+        // Más picos: añadir octava extra y subir amplitudes de altas frecuencias.
+        int[] segments = {
+                Math.max(4, ancho / 96),    // muy larga (menor impacto)
+                Math.max(8, ancho / 48),
+                Math.max(16, ancho / 24),
+                Math.max(32, ancho / 12),
+                Math.max(64, ancho / 6)     // nueva octava de detalle fino
+        };
+        double[] amplitudes = {
+                alto * 0.08, // base
+                alto * 0.07,
+                alto * 0.06,
+                alto * 0.05,
+                alto * 0.035 // detalle fino
+        };
 
-        // Pasada de suavizado (kernel 1-2-1) para eliminar cambios bruscos
-        if (ancho >= 3) {
-            int[] smooth = new int[ancho];
-            for (int x = 0; x < ancho; x++) {
-                int left = hTop[Math.max(0, x - 1)];
-                int mid = hTop[x];
-                int right = hTop[Math.min(ancho - 1, x + 1)];
-                smooth[x] = Math.round((left + 2 * mid + right) / 4.0f);
+        java.util.Random rand = new java.util.Random(987654321L); // nueva seed para diferente perfil
+        double[][] octaveValues = new double[segments.length][];
+        for (int o = 0; o < segments.length; o++) {
+            int segCount = segments[o] + 1;
+            double[] vals = new double[segCount];
+            for (int i = 0; i < segCount; i++) {
+                // Amplificar variación vertical usando distribución sesgada
+                double r = rand.nextDouble();
+                double v = (Math.pow(r, 0.6) * 2.0) - 1.0; // sesgo hacia extremos
+                vals[i] = v;
             }
-            hTop = smooth;
+            octaveValues[o] = vals;
         }
 
-        // 1) Rellenar con piedra hasta la altura hTop[x] incluida; aire por encima
+        int[] hTop = new int[ancho];
+        for (int x = 0; x < ancho; x++) {
+            double h = base;
+            double xf = (double)x / (ancho - 1);
+            for (int o = 0; o < segments.length; o++) {
+                int segs = segments[o];
+                double pos = xf * segs;
+                int i0 = (int)Math.floor(pos);
+                int i1 = Math.min(segs, i0 + 1);
+                double t = pos - i0;
+                double tt = t * t * (3 - 2 * t); // smoothstep
+                double v0 = octaveValues[o][i0];
+                double v1 = octaveValues[o][i1];
+                double v = v0 + (v1 - v0) * tt;
+                h += v * amplitudes[o];
+            }
+            if (h < 4) h = 4;
+            if (h > alto - 1) h = alto - 1;
+            hTop[x] = (int)Math.round(h);
+        }
+
+        // Eliminado: no forzar elevación mínima sobre el nivel del agua para permitir lagos / zonas inundadas.
+
+        // Rellenar piedra hasta hTop[x]
         for (int arrayY = 0; arrayY < alto; arrayY++) {
             for (int x = 0; x < ancho; x++) {
                 if (arrayY <= hTop[x]) {
                     Punto p = new Punto(offsetX + x * size, offsetY + (alto - 1 - arrayY) * size);
                     mundo[arrayY][x] = new BasicBlock("stone", p);
                 } else {
-                    mundo[arrayY][x] = null; // aire
+                    mundo[arrayY][x] = null;
                 }
             }
         }
 
-        // 2) Para cada columna, localizar la "superficie" (primer bloque no-nulo desde arriba)
+        // Capa superficial: grass top + 3 dirt debajo
         for (int x = 0; x < ancho; x++) {
             int top = -1;
             for (int arrayY = alto - 1; arrayY >= 0; arrayY--) {
                 if (mundo[arrayY][x] != null) { top = arrayY; break; }
             }
-            if (top < 0) continue; // columna vacía
-
-            // Sustituir el bloque superior por grass_block
+            if (top < 0) continue;
             Punto pTop = new Punto(offsetX + x * size, offsetY + (alto - 1 - top) * size);
             mundo[top][x] = new BasicBlock("grass_block", pTop);
-
-            // Y los 3 inferiores por dirt (si existen)
             for (int i = 1; i <= 3; i++) {
                 int yb = top - i;
                 if (yb < 0) break;
@@ -103,6 +117,16 @@ public class GeneradorMundo {
             }
         }
 
+        // Agua: rellenar aire desde el fondo hasta WATER_LEVEL (63) inclusive
+        int waterMaxArrayY = Math.min(WATER_LEVEL, alto - 1);
+        for (int arrayY = 0; arrayY <= waterMaxArrayY; arrayY++) {
+            for (int x = 0; x < ancho; x++) {
+                if (mundo[arrayY][x] == null) {
+                    Punto p = new Punto(offsetX + x * size, offsetY + (alto - 1 - arrayY) * size);
+                    mundo[arrayY][x] = new BasicBlock("water", p);
+                }
+            }
+        }
         return mundo;
     }
 }

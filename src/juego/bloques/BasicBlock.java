@@ -22,6 +22,7 @@ public class BasicBlock {
     private final Punto p;
     private final String blockID;
     private final double dureza; // segundos necesarios de mantener click para romper
+    private final BlockType type;
 
     /**
      * Crea un bloque de tipo dado en la posición indicada.
@@ -29,23 +30,28 @@ public class BasicBlock {
      * @param p posición en píxeles del mundo (esquina superior izquierda del bloque)
      */
     public BasicBlock(String blockID, Punto p) {
-        this.blockID = blockID;
-        this.sprite = cargarImagen("assets/blocks/" + blockID + ".png");
-        this.p = p;
-        this.dureza = calcularDureza(blockID);
+        this(BlockType.fromId(blockID), p);
     }
 
     /**
-     * Identificador de tipo de bloque (p.ej. "stone", "dirt").
+     * Crea un bloque desde su tipo enum.
      */
+    public BasicBlock(BlockType type, Punto p) {
+        this.type = (type != null) ? type : BlockType.UNKNOWN;
+        this.blockID = this.type.getId();
+        this.sprite = cargarImagen("assets/blocks/" + this.blockID + ".png");
+        this.p = p;
+        this.dureza = this.type.getHardness();
+    }
+
+    /** Identificador de tipo de bloque (p.ej. "stone", "dirt"). */
     public String getId() { return blockID; }
 
-    /**
-     * Tamaño del bloque en píxeles de lado.
-     */
-    public static double getSize() {
-        return SIZE;
-    }
+    /** Tipo del bloque. */
+    public BlockType getType() { return type; }
+
+    /** Tamaño del bloque en píxeles de lado. */
+    public static double getSize() { return SIZE; }
 
     private Image cargarImagen(String path) {
         String normalized = path.startsWith("/") ? path.substring(1) : path;
@@ -60,9 +66,7 @@ public class BasicBlock {
         throw new IllegalStateException("No se pudo cargar la imagen del bloque: " + path);
     }
 
-    /**
-     * Dibuja el bloque en la posición indicada.
-     */
+    /** Dibuja el bloque en la posición indicada. */
     public void draw(Graphics2D g) {
         AffineTransform at = g.getTransform();
         g.translate(p.x(), p.y());
@@ -70,25 +74,10 @@ public class BasicBlock {
         g.setTransform(at);
     }
 
-    /**
-     * Dureza en segundos necesarios de "minado" continuo para romper el bloque.
-     */
+    /** Dureza en segundos necesarios de "minado" continuo para romper el bloque. */
     public double getDureza() { return dureza; }
-
-    private double calcularDureza(String id) {
-        // Valores ejemplo; ajustar según diseño
-        return switch (id) {
-            case "stone" -> 1.5;
-            case "dirt" -> 0.8;
-            case "sand" -> 0.4;
-            case "grass_block" -> 0.6;
-            default -> 1.0;
-        };
-    }
 
     // --- Nuevos helpers de colisión ---
     /** Rectángulo de colisión del bloque en píxeles del mundo. */
-    public Rectangle2D getBounds() {
-        return new Rectangle2D.Double(p.x(), p.y(), SIZE, SIZE);
-    }
+    public Rectangle2D getBounds() { return new Rectangle2D.Double(p.x(), p.y(), SIZE, SIZE); }
 }
