@@ -90,6 +90,27 @@ public class EditorMundo {
                 if (isPausedSupplier.getAsBoolean()) return; // ignorar input en pausa
                 double scale = Math.max(1.0, scaleSupplier.getAsDouble());
                 if (SwingUtilities.isLeftMouseButton(e)) {
+                    // Si clicas sobre agua, no inicies rotura
+                    BasicBlock[][] local = mundo;
+                    if (local != null) {
+                        double size = BasicBlock.getSize();
+                        int tileX = (int) Math.floor((camara.getX() + e.getX() / scale) / size);
+                        int tileY = (int) Math.floor((camara.getY() + e.getY() / scale) / size);
+                        int arrY = (local.length > 0) ? local.length - 1 - tileY : -1;
+                        if (tileX >= 0 && tileY >= 0 && arrY >= 0 && arrY < local.length && tileX < local[0].length) {
+                            BasicBlock b = local[arrY][tileX];
+                            if (b != null && !b.isBreakable()) {
+                                // agua u otros no rompibles: abortar rotura por completo
+                                leftDown = false;
+                                holdTimeSeconds = 0.0;
+                                targetTileX = Integer.MIN_VALUE;
+                                targetTileY = Integer.MIN_VALUE;
+                                currentDureza = 0.0;
+                                return;
+                            }
+                        }
+                    }
+                    // Caso normal: iniciar seguimiento de rotura
                     leftDown = true;
                     mouseX = (int)Math.round(e.getX() / scale);
                     mouseY = (int)Math.round(e.getY() / scale);
@@ -104,13 +125,11 @@ public class EditorMundo {
                     if (arrY < 0 || arrY >= local.length || tileX >= local[0].length) return;
                     Rectangle2D pb = jugador.getBounds();
                     if (!isTileInteractable(tileX, tileY, pb, size, local)) return; // fuera de rango
-                    if (local[arrY][tileX] == null) {
-                        // crear bloque stone
+                    // Permitir construir si tile está vacío o es agua.
+                    BasicBlock existing = local[arrY][tileX];
+                    if (existing == null || "water".equals(existing.getId())) {
                         local[arrY][tileX] = new BasicBlock("stone", new Punto(tileX * size, tileY * size));
-                        // actualizar hover inmediatamente
-                        hoverTileX = tileX;
-                        hoverTileY = tileY;
-                        hoverHasBlock = true;
+                        hoverTileX = tileX; hoverTileY = tileY; hoverHasBlock = true;
                     }
                 }
             }
@@ -201,7 +220,8 @@ public class EditorMundo {
         if (tileY < 0 || tileX < 0) return true;
         int arrY = world.length - 1 - tileY;
         if (arrY < 0 || arrY >= world.length || tileX >= world[0].length) return true;
-        return world[arrY][tileX] == null;
+        BasicBlock b = world[arrY][tileX];
+        return b == null || "water".equals(b.getId());
     }
 
     // --- Getters para feedback visual ---
@@ -216,7 +236,15 @@ public class EditorMundo {
     }
     /** Indica si actualmente se está rompiendo un bloque válido. */
     public boolean isBreaking() {
-        return leftDown && currentDureza > 0 && targetTileX != Integer.MIN_VALUE && targetTileY != Integer.MIN_VALUE && holdTimeSeconds > 0.0;
+        if (!leftDown) return false;
+        if (currentDureza <= 0 || holdTimeSeconds <= 0) return false;
+        if (targetTileX == Integer.MIN_VALUE || targetTileY == Integer.MIN_VALUE) return false;
+        BasicBlock[][] local = mundo;
+        if (local == null || local.length == 0) return false;
+        int arrY = local.length - 1 - targetTileY;
+        if (arrY < 0 || arrY >= local.length || targetTileX < 0 || targetTileX >= local[0].length) return false;
+        BasicBlock b = local[arrY][targetTileX];
+        return b != null && b.isBreakable();
     }
     /** Tile X bajo el cursor interactuable (o MIN_VALUE si ninguno). */
     public int getHoverTileX() { return hoverTileX; }
@@ -290,18 +318,25 @@ public class EditorMundo {
                 if (tileY >= 0 && tileX >= 0 && arrYBreak >= 0 && arrYBreak < local.length && tileX < local[0].length) {
                     Rectangle2D pb = jugador.getBounds();
                     if (!isTileInteractable(tileX, tileY, pb, size, local)) {
-                        holdTimeSeconds = 0.0;
-                        targetTileX = Integer.MIN_VALUE;
-                        targetTileY = Integer.MIN_VALUE;
-                        currentDureza = 0.0;
+                        // ...existing reset...
                     } else {
                         BasicBlock b = local[arrYBreak][tileX];
-                        if (b == null) {
+                        // Bloques no rompibles (agua) no acumulan progreso
+                        if (b != null && !b.isBreakable()) {
+                            // bloque no rompible: cancelar rotura
+                            leftDown = false;
+                            holdTimeSeconds = 0.0;
+                            targetTileX = Integer.MIN_VALUE;
+                            targetTileY = Integer.MIN_VALUE;
+                            currentDureza = 0.0;
+                        } else if (b == null) {
+                            // ...existing reset when null...
                             holdTimeSeconds = 0.0;
                             targetTileX = Integer.MIN_VALUE;
                             targetTileY = Integer.MIN_VALUE;
                             currentDureza = 0.0;
                         } else {
+                            // ...existing progress/romper lógica...
                             if (tileX != targetTileX || tileY != targetTileY) {
                                 targetTileX = tileX;
                                 targetTileY = tileY;
@@ -322,13 +357,14 @@ public class EditorMundo {
                         }
                     }
                 } else {
+                    // ...existing reset out of bounds...
                     holdTimeSeconds = 0.0;
                     targetTileX = Integer.MIN_VALUE;
                     targetTileY = Integer.MIN_VALUE;
                     currentDureza = 0.0;
                 }
             } else {
-                // No presionado: solo mantener hover, reset de rotura
+                // ...existing no-press reset...
                 holdTimeSeconds = 0.0;
                 targetTileX = Integer.MIN_VALUE;
                 targetTileY = Integer.MIN_VALUE;

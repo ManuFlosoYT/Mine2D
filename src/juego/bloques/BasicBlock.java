@@ -77,6 +77,9 @@ public class BasicBlock {
     /** Dureza en segundos necesarios de "minado" continuo para romper el bloque. */
     public double getDureza() { return dureza; }
 
+    /** Por defecto los bloques son rompibles. */
+    public boolean isBreakable() { return true; }
+
     // --- Nuevos helpers de colisión ---
     /** Rectángulo de colisión del bloque en píxeles del mundo. */
     public Rectangle2D getBounds() { return new Rectangle2D.Double(p.x(), p.y(), SIZE, SIZE); }

@@ -123,7 +123,7 @@ public class GeneradorMundo {
             for (int x = 0; x < ancho; x++) {
                 if (mundo[arrayY][x] == null) {
                     Punto p = new Punto(offsetX + x * size, offsetY + (alto - 1 - arrayY) * size);
-                    mundo[arrayY][x] = new BasicBlock("water", p);
+                    mundo[arrayY][x] = new juego.bloques.WaterBlock(p);
                 }
             }
         }
@@ -147,7 +147,8 @@ public class GeneradorMundo {
                 }
                 if (nearWater) {
                     Punto p = new Punto(offsetX + x * size, offsetY + (alto - 1 - arrayY) * size);
-                    mundo[arrayY][x] = new BasicBlock("sand", p);
+                    // No reemplazar agua; solo bloques sólidos
+                    if (!"water".equals(id)) mundo[arrayY][x] = new BasicBlock("sand", p);
                 }
             }
         }

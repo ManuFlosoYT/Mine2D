@@ -8,7 +8,7 @@ public enum BlockType {
     DIRT("dirt", 0.8),
     SAND("sand", 0.4),
     GRASS_BLOCK("grass_block", 0.6),
-    WATER("water", 0.2),
+    WATER("water", 999.0),
     UNKNOWN("unknown", 1.0);
 
     private final String id;

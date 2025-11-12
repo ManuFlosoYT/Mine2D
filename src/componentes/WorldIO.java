@@ -1,6 +1,7 @@
 package componentes;
 
 import juego.bloques.BasicBlock;
+import juego.bloques.WaterBlock;
 import tipos.Punto;
 
 import java.io.*;
@@ -158,7 +159,9 @@ public final class WorldIO {
                     if (tok == null || AIR.equals(tok)) mundo[arrayY][x] = null;
                     else {
                         int tileYTop = alto - 1 - arrayY;
-                        mundo[arrayY][x] = new BasicBlock(tok, new Punto(x * size, tileYTop * size));
+                        Punto pos = new Punto(x * size, tileYTop * size);
+                        if ("water".equals(tok)) mundo[arrayY][x] = new WaterBlock(pos);
+                        else mundo[arrayY][x] = new BasicBlock(tok, pos);
                     }
                 }
             }
