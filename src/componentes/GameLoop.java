@@ -88,6 +88,18 @@ public class GameLoop implements Runnable {
                 Graphics2D g = panel.getOffscreenGraphics();
                 renderer.drawBackground(g, panel.getAncho(), panel.getAlto());
                 renderer.drawGame(g, bloquesVisibles, jugador, camara, editorMundo);
+                // Actualizar datos del HUD antes de dibujarlo (en bloques, Y invertida: 0 abajo)
+                double size = BasicBlock.getSize();
+                double tx = Math.floor(jugador.getX() / size);
+                int altoTiles = (panel.getMundo() != null) ? panel.getMundo().length : 0;
+                int tileTop = (int)Math.floor(jugador.getY() / size);
+                int yFromBottom = 0;
+                if (altoTiles > 0) {
+                    yFromBottom = altoTiles - 1 - tileTop; // inverso: 0 es abajo
+                    if (yFromBottom < 0) yFromBottom = 0;
+                    if (yFromBottom >= altoTiles) yFromBottom = altoTiles - 1;
+                }
+                hud.setPlayerPosition(tx, yFromBottom);
                 hud.draw(g);
             }
             panel.present();
