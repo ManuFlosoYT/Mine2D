@@ -127,6 +127,30 @@ public class GeneradorMundo {
                 }
             }
         }
+
+        // Orillas: cualquier bloque sólido con agua en un 3x3 a su alrededor -> sand
+        for (int arrayY = 0; arrayY < alto; arrayY++) {
+            for (int x = 0; x < ancho; x++) {
+                BasicBlock b = mundo[arrayY][x];
+                if (b == null) continue; // aire se queda
+                String id = b.getId();
+                if ("water".equals(id)) continue; // no sustituir agua
+                boolean nearWater = false;
+                for (int dy = -1; dy <= 1 && !nearWater; dy++) {
+                    int yy = arrayY + dy; if (yy < 0 || yy >= alto) continue;
+                    for (int dx = -1; dx <= 1; dx++) {
+                        if (dx == 0 && dy == 0) continue;
+                        int xx = x + dx; if (xx < 0 || xx >= ancho) continue;
+                        BasicBlock nb = mundo[yy][xx];
+                        if (nb != null && "water".equals(nb.getId())) { nearWater = true; break; }
+                    }
+                }
+                if (nearWater) {
+                    Punto p = new Punto(offsetX + x * size, offsetY + (alto - 1 - arrayY) * size);
+                    mundo[arrayY][x] = new BasicBlock("sand", p);
+                }
+            }
+        }
         return mundo;
     }
 }
