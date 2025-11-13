@@ -89,7 +89,7 @@ public class GameLoop implements Runnable {
             synchronized (((programa.Panel)panel).getRenderLock()) {
                 Graphics2D g = panel.getOffscreenGraphics();
                 renderer.drawBackground(g, panel.getAncho(), panel.getAlto());
-                renderer.drawGame(g, bloquesVisibles, jugador, camara, editorMundo, panel.getRenderScale());
+                renderer.drawGame(g, bloquesVisibles, jugador, camara, editorMundo, panel.getRenderScale(), panel.getLightGrid(), panel.isLightDebugEnabled());
                 // Actualizar datos del HUD antes de dibujarlo (en bloques, Y invertida: 0 abajo)
                 double size = BasicBlock.getSize();
                 double tx = Math.floor(jugador.getX() / size);

@@ -30,24 +30,54 @@ public class Renderer {
      * @param camara cámara para calcular desplazamiento
      * @param editorMundo estado de interacción del editor (hover, rotura)
      * @param scale factor de escala para el mundo
+     * @param lightGrid cuadrícula de valores de luz para el debug
+     * @param debugLight flag para activar/desactivar el modo debug de luz
      */
     public void drawGame(Graphics2D g,
                          List<BasicBlock> bloquesVisibles,
                          Jugador jugador,
                          Camara camara,
                          EditorMundo editorMundo,
-                         double scale) {
+                         double scale,
+                         int[][] lightGrid,
+                         boolean debugLight) {
         if (g == null || camara == null) return;
         AffineTransform old = g.getTransform();
         // Escalar mundo para mantener tamaño aparente del bloque
         g.scale(scale, scale);
         // Tras la escala, las traducciones están en píxeles de mundo
         g.translate(-camara.getX(), -camara.getY());
+        double size = BasicBlock.getSize();
         if (bloquesVisibles != null) {
-            for (BasicBlock b : bloquesVisibles) { b.draw(g); }
+            for (BasicBlock b : bloquesVisibles) {
+                b.draw(g);
+                if (debugLight && lightGrid != null && lightGrid.length > 0) {
+                    // Calcular índice del tile del bloque
+                    Rectangle r = new Rectangle((int)b.getBounds().getX(), (int)b.getBounds().getY(), (int)size, (int)size);
+                    int tileX = (int)Math.floor(r.x / size);
+                    int tileYTop = (int)Math.floor(r.y / size);
+                    int arrY = lightGrid.length - 1 - tileYTop;
+                    if (arrY >= 0 && arrY < lightGrid.length && tileX >= 0 && tileX < lightGrid[0].length) {
+                        int val = lightGrid[arrY][tileX];
+                        // Dibujar número centrado
+                        String s = Integer.toString(val);
+                        Font prev = g.getFont();
+                        Font f = prev.deriveFont(Font.BOLD, (float)(size * 0.4));
+                        g.setFont(f);
+                        FontMetrics fm = g.getFontMetrics();
+                        int tx = r.x + (r.width - fm.stringWidth(s)) / 2;
+                        int ty = r.y + (r.height + fm.getAscent() - fm.getDescent()) / 2;
+                        // Contorno para legibilidad
+                        g.setColor(new Color(0,0,0,170));
+                        g.drawString(s, tx+1, ty+1);
+                        g.setColor(Color.WHITE);
+                        g.drawString(s, tx, ty);
+                        g.setFont(prev);
+                    }
+                }
+            }
         }
         if (jugador != null) jugador.draw(g);
-        double size = BasicBlock.getSize();
         // Borde por hover (negro si hay bloque, gris claro y fino si es aire)
         if (editorMundo != null && editorMundo.isHoveringInteractable()) {
             int htx = editorMundo.getHoverTileX();

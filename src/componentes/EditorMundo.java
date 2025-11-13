@@ -39,6 +39,9 @@ public class EditorMundo {
 
     private final DoubleSupplier scaleSupplier; // proveedor de escala de render (>=1)
 
+    // Callback cuando el mundo cambia (colocar/romper)
+    private Runnable onWorldChanged;
+
     /**
      * Crea un editor de mundo asociado a la rejilla de bloques y al jugador.
      * @param mundo rejilla de bloques [arrayY][x]
@@ -82,6 +85,9 @@ public class EditorMundo {
 
     /** Permite actualizar la referencia al mundo si se regenera */
     public void setMundo(BasicBlock[][] nuevo) { this.mundo = nuevo; }
+
+    /** Establece el callback a ejecutar cuando el mundo cambia (colocar/romper bloques) */
+    public void setOnWorldChanged(Runnable r) { this.onWorldChanged = r; }
 
     private void instalarMouseListener() {
         MouseAdapter adapter = new MouseAdapter() {
@@ -130,6 +136,7 @@ public class EditorMundo {
                     if (existing == null || "water".equals(existing.getId())) {
                         local[arrY][tileX] = new BasicBlock("stone", new Punto(tileX * size, tileY * size));
                         hoverTileX = tileX; hoverTileY = tileY; hoverHasBlock = true;
+                        if (onWorldChanged != null) onWorldChanged.run();
                     }
                 }
             }
@@ -353,6 +360,7 @@ public class EditorMundo {
                                 targetTileY = Integer.MIN_VALUE;
                                 currentDureza = 0.0;
                                 if (hoverTileX == tileX && hoverTileY == tileY) hoverHasBlock = false;
+                                if (onWorldChanged != null) onWorldChanged.run();
                             }
                         }
                     }

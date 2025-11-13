@@ -33,6 +33,7 @@ public class Panel extends JComponent {
     private InputController inputController;
     private Jugador jugador;
     private volatile BasicBlock[][] mundo;
+    private volatile int[][] lightGrid; // niveles de luz [arrayY][x]
     private final List<BasicBlock> bloquesVisibles = new ArrayList<>();
     private Camara camara;
     private HudDebug hud;
@@ -56,6 +57,7 @@ public class Panel extends JComponent {
 
     private volatile boolean vsyncEnabled = true; // limitar FPS (VSync simulado)
     private volatile double renderScale = 1.0; // factor de escala de mundo -> pantalla
+    private volatile boolean debugLight = false; // mostrar números de luz en bloques
 
     /** Permite configurar el tamaño del mundo a generar al iniciar nueva partida. Llamar antes de start(). */
     public void setWorldSize(int width, int height) {
@@ -85,6 +87,8 @@ public class Panel extends JComponent {
         graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
         initGame();
+        // Recomputar iluminación inicial
+        recomputeLighting();
         setupPauseMenu();
         setupKeyBindings();
         input = new Input();
@@ -130,7 +134,13 @@ public class Panel extends JComponent {
         } else {
             editorMundo.setMundo(mundo);
         }
+        // Notificar cambios de mundo -> recomputar iluminación
+        editorMundo.setOnWorldChanged(this::recomputeLighting);
         if (renderer == null) renderer = new Renderer();
+    }
+
+    private void recomputeLighting() {
+        this.lightGrid = Lighting.computeSkyLight(this.mundo);
     }
 
     /** Devuelve la coordenada Y (en píxeles) de la parte superior del bloque más alto en la columna de xPx.
@@ -179,6 +189,8 @@ public class Panel extends JComponent {
             if (editorMundo != null) editorMundo.setMundo(mundo);
             if (data.jugadorPos() != null) jugador.colocar(data.jugadorPos());
             camara.update(jugador, mundo, 0);
+            // Recalcular iluminación tras cargar
+            recomputeLighting();
             System.out.println("[INFO] Mundo cargado: " + mundo[0].length + "x" + mundo.length);
         } catch (IOException e) {
             System.err.println("[ERROR] Error cargando el mundo: " + e.getMessage());
@@ -199,6 +211,8 @@ public class Panel extends JComponent {
             int vpWWorldPx = (int)Math.round(ancho / renderScale);
             int vpHWorldPx = (int)Math.round(alto / renderScale);
             MundoHelper.actualizarBloquesVisibles(bloquesVisibles, mundo, camara, vpWWorldPx, vpHWorldPx);
+            // Recalcular iluminación
+            recomputeLighting();
         } catch (IOException e) {
             System.err.println("Error cargando partida guardada: " + e.getMessage());
         }
@@ -248,6 +262,9 @@ public class Panel extends JComponent {
     private void setupKeyBindings() {
         getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ESCAPE,0),"togglePause");
         getActionMap().put("togglePause", new javax.swing.AbstractAction() { @Override public void actionPerformed(java.awt.event.ActionEvent e) { togglePause(); }});
+        // Toggle debug de luz con F5
+        getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_F5,0),"toggleLightDebug");
+        getActionMap().put("toggleLightDebug", new javax.swing.AbstractAction() { @Override public void actionPerformed(java.awt.event.ActionEvent e) { debugLight = !debugLight; repaint(); }});
     }
     private void togglePause() { if (!gameState.isPaused()) pauseGame(); else resumeGame(); }
     public boolean isPaused() { return gameState.isPaused(); }
@@ -266,6 +283,8 @@ public class Panel extends JComponent {
     public void setMundo(BasicBlock[][] nuevo){ this.mundo = nuevo; }
     public boolean isVsyncEnabled() { return vsyncEnabled; }
     public void setVsyncEnabled(boolean enabled) { this.vsyncEnabled = enabled; }
+    public int[][] getLightGrid() { return lightGrid; }
+    public boolean isLightDebugEnabled() { return debugLight; }
 
     public Panel() {
         this(null);
