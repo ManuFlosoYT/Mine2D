@@ -83,4 +83,8 @@ public class BasicBlock {
     // --- Nuevos helpers de colisión ---
     /** Rectángulo de colisión del bloque en píxeles del mundo. */
     public Rectangle2D getBounds() { return new Rectangle2D.Double(p.x(), p.y(), SIZE, SIZE); }
+
+    // --- Soporte para subclases: acceso protegido a la posición ---
+    protected double getX() { return p.x(); }
+    protected double getY() { return p.y(); }
 }

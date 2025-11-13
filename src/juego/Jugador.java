@@ -3,6 +3,7 @@ package juego;
 import componentes.Input;
 import tipos.Punto;
 import juego.bloques.BasicBlock;
+import juego.bloques.BlockType; // nuevo: para distinguir agua en colisiones/física
 
 import javax.swing.*;
 import java.awt.*;
@@ -31,7 +32,7 @@ public class Jugador {
     private double vx;
     private double vy;
 
-    // Parámetros de física
+    // Parámetros de física (aire/suelo)
     private static final double VX_ACEL = 1200;      // px/s^2 aceleración horizontal
     private static final double VX_FRICTION = 1100;  // px/s^2 fricción cuando no se pulsa nada
     private static final double VX_MAX = 300;        // px/s velocidad horizontal máxima
@@ -39,6 +40,26 @@ public class Jugador {
     private static final double GRAVEDAD = 1500;      // px/s^2 gravedad
     private static final double VY_SALTO = 500;      // px/s velocidad inicial de salto
     private static final double VY_MAX_CAIDA = 1200;  // px/s límite máximo de caída
+
+    // Parámetros de física en agua
+    private static final double WATER_GRAVITY = 400;        // gravedad reducida en agua
+    private static final double WATER_UP_ACCEL = 900;       // aceleración hacia arriba al mantener salto
+    private static final double WATER_DOWN_ACCEL = 300;     // aceleración de hundimiento
+    private static final double SWIM_UP_SPEED = 150;        // velocidad máx. de ascenso
+    private static final double SWIM_DOWN_SPEED = 150;      // velocidad máx. de descenso
+    // Movimiento horizontal en agua (más lento)
+    private static final double WATER_VX_ACEL = 450;        // px/s^2 aceleración horizontal reducida
+    private static final double WATER_VX_FRICTION = 1300;   // px/s^2 fricción algo mayor por drag
+    private static final double WATER_VX_MAX = 140;         // px/s velocidad horizontal máxima reducida
+
+
+    // Persistencia de física de agua para suavizar cruces de superficie
+    private static final double WATER_STICKY_TIME = 0.15;   // segundos de ventana tras salir del agua
+    private static final double WATER_DETECT_TOL = Math.max(4, BLOCK_SIZE * 0.12); // px de tolerancia hacia arriba
+    private double aguaStickyTimer = 0.0;
+
+    // Tolerancia para considerar que está apoyado sobre un bloque sólido
+    private static final double GROUND_EPS = 3.0; // px
 
     // Jump buffering & coyote time
     private static final double JUMP_BUFFER_TIME = 0.20; // segundos
@@ -98,6 +119,44 @@ public class Jugador {
         return new Rectangle2D.Double(x, y, WIDTH, HEIGHT);
     }
 
+    // Helper: determinar si hay soporte sólido justo bajo los pies del jugador
+    private boolean isSupportedBySolid(List<BasicBlock> bloques, double px, double py) {
+        double feet = py + HEIGHT;
+        for (BasicBlock b : bloques) {
+            if (b.getType() == BlockType.WATER) continue;
+            Rectangle2D br = b.getBounds();
+            // Solape horizontal
+            boolean overlapX = (px + WIDTH) > br.getX() + 0.001 && px < (br.getX() + br.getWidth()) - 0.001;
+            if (!overlapX) continue;
+            double top = br.getY();
+            // Si los pies están a la altura del top del bloque (con tolerancia)
+            if (feet >= top - GROUND_EPS && feet <= top + GROUND_EPS) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Helper: obtener la Y superior exacta del bloque que soporta al jugador (si está dentro de la tolerancia)
+    private Double getSupportTopY(List<BasicBlock> bloques, double px, double py) {
+        double feet = py + HEIGHT;
+        Double bestTop = null;
+        double bestAbs = GROUND_EPS + 1;
+        for (BasicBlock b : bloques) {
+            if (b.getType() == BlockType.WATER) continue;
+            Rectangle2D br = b.getBounds();
+            boolean overlapX = (px + WIDTH) > br.getX() + 0.001 && px < (br.getX() + br.getWidth()) - 0.001;
+            if (!overlapX) continue;
+            double top = br.getY();
+            double diff = Math.abs(feet - top);
+            if (diff <= GROUND_EPS && diff < bestAbs) {
+                bestAbs = diff;
+                bestTop = top;
+            }
+        }
+        return bestTop;
+    }
+
     /**
      * Actualiza el estado del jugador: procesa input, integra física y resuelve colisiones.
      * @param input estado de entrada (teclas)
@@ -108,6 +167,34 @@ public class Jugador {
         // --- INPUT: izquierda/derecha ---
         boolean left = input.isKeyA();
         boolean right = input.isKeyD();
+
+        // Detectar si está dentro del agua (intersección con cualquier bloque de agua)
+        boolean enAgua = false;
+        Rectangle2D pbActual = getBounds();
+        // Considerar solo la parte inferior del jugador para la detección de agua (evitar falsos positivos por hombros)
+        Rectangle2D piesJugador = new Rectangle2D.Double(pbActual.getX(), pbActual.getY() + pbActual.getHeight() * 0.4,
+                pbActual.getWidth(), pbActual.getHeight() * 0.6);
+        for (BasicBlock b : bloques) {
+            if (b.getType() == BlockType.WATER) {
+                Rectangle2D wb = b.getBounds();
+                // Expandir la caja de agua hacia arriba para compensar el recorte de hitbox y evitar gaps
+                Rectangle2D wbDetect = new Rectangle2D.Double(wb.getX(), wb.getY() - WATER_DETECT_TOL, wb.getWidth(), wb.getHeight() + WATER_DETECT_TOL);
+                if (piesJugador.intersects(wbDetect)) {
+                    enAgua = true;
+                    break;
+                }
+            }
+        }
+        // ¿Estamos apoyados sobre bloque sólido en la posición actual?
+        boolean soportadoPre = isSupportedBySolid(bloques, x, y);
+
+        // Actualizar sticky si tocamos agua (pero si estamos apoyados, no alargar el sticky innecesariamente)
+        if (enAgua && !soportadoPre) {
+            aguaStickyTimer = WATER_STICKY_TIME;
+        } else if (aguaStickyTimer > 0) {
+            aguaStickyTimer -= dt;
+            if (aguaStickyTimer < 0) aguaStickyTimer = 0;
+        }
 
         // --- Actualizar coyote timer según estado del frame anterior ---
         if (enSuelo) {
@@ -126,41 +213,64 @@ public class Jugador {
         }
 
         // --- Movimiento horizontal con aceleración / fricción ---
+        boolean usarAguaHorizontal = (enAgua || aguaStickyTimer > 0) && !soportadoPre;
+        double acel = usarAguaHorizontal ? WATER_VX_ACEL : VX_ACEL;
+        double fric = usarAguaHorizontal ? WATER_VX_FRICTION : VX_FRICTION;
+        double vmax = usarAguaHorizontal ? WATER_VX_MAX : VX_MAX;
         if (left && !right) {
-            vx -= VX_ACEL * dt;
+            vx -= acel * dt;
         } else if (right && !left) {
-            vx += VX_ACEL * dt;
+            vx += acel * dt;
         } else {
             if (vx > 0) {
-                vx -= VX_FRICTION * dt;
+                vx -= fric * dt;
                 if (vx < 0) vx = 0;
             } else if (vx < 0) {
-                vx += VX_FRICTION * dt;
+                vx += fric * dt;
                 if (vx > 0) vx = 0;
             }
         }
 
-        if (vx > VX_MAX) vx = VX_MAX;
-        if (vx < -VX_MAX) vx = -VX_MAX;
+        if (vx > vmax) vx = vmax;
+        if (vx < -vmax) vx = -vmax;
 
         // --- Decidir salto ANTES de integrar eje Y ---
-        if (jumpBufferTimer > 0 && (enSuelo || coyoteTimer > 0)) {
-            vy = -VY_SALTO; // hacia arriba
-            enSuelo = false;
-            jumpBufferTimer = 0; // consumir buffer al usarlo
-            coyoteTimer = 0;
+        if (!enAgua || soportadoPre) {
+            if (jumpBufferTimer > 0 && (enSuelo || coyoteTimer > 0 || soportadoPre)) {
+                vy = -VY_SALTO; // hacia arriba
+                enSuelo = false;
+                jumpBufferTimer = 0; // consumir buffer al usarlo
+                coyoteTimer = 0;
+            }
+        } else {
+            // En agua no aplicamos salto balístico; el SPACE se usará como nado hacia arriba
+            jumpBufferTimer = 0; // limpiar para no acumular
         }
 
-        // --- Gravedad ---
-        if (!enSuelo) {
-            vy += GRAVEDAD * dt; // hacia abajo positiva
-            if (vy > VY_MAX_CAIDA) vy = VY_MAX_CAIDA;
+        // --- Gravedad / flotabilidad ---
+        if (enAgua && !soportadoPre) {
+            // Hundimiento suave por defecto
+            if (input.isKeySpace()) {
+                // Nadar hacia arriba
+                vy -= WATER_UP_ACCEL * dt;
+                if (vy < -SWIM_UP_SPEED) vy = -SWIM_UP_SPEED;
+            } else {
+                // Tender hacia hundirse lentamente
+                vy += Math.max(WATER_GRAVITY, WATER_DOWN_ACCEL) * dt;
+                if (vy > SWIM_DOWN_SPEED) vy = SWIM_DOWN_SPEED;
+            }
+        } else {
+            if (!enSuelo) {
+                vy += GRAVEDAD * dt; // hacia abajo positiva
+                if (vy > VY_MAX_CAIDA) vy = VY_MAX_CAIDA;
+            }
         }
 
         // --- Integración y colisión eje X ---
         double nuevoX = x + vx * dt;
         Rectangle2D futuroX = new Rectangle2D.Double(nuevoX, y, WIDTH, HEIGHT);
         for (BasicBlock b : bloques) {
+            if (b.getType() == BlockType.WATER) continue; // agua no colisiona
             if (futuroX.intersects(b.getBounds())) {
                 Rectangle2D br = b.getBounds();
                 if (vx > 0) {
@@ -179,6 +289,7 @@ public class Jugador {
         Rectangle2D futuroY = new Rectangle2D.Double(x, nuevoY, WIDTH, HEIGHT);
         enSuelo = false;
         for (BasicBlock b : bloques) {
+            if (b.getType() == BlockType.WATER) continue; // agua no colisiona
             if (futuroY.intersects(b.getBounds())) {
                 Rectangle2D br = b.getBounds();
                 if (vy > 0) { // cayendo
@@ -193,6 +304,20 @@ public class Jugador {
             }
         }
         y = nuevoY;
+
+        // Recalcular soporte tras integrar para estados estacionarios
+        boolean soportadoPost = isSupportedBySolid(bloques, x, y);
+        if (soportadoPost) {
+            Double topY = getSupportTopY(bloques, x, y);
+            if (topY != null) {
+                // Alinear los pies exactamente con el top del bloque para evitar levitación
+                y = topY - HEIGHT;
+            }
+            enSuelo = true;
+            vy = 0;
+            aguaStickyTimer = 0; // al estar apoyado, no queremos drag de agua residual
+        }
+
     }
 
 }
