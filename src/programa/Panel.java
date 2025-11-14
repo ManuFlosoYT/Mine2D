@@ -33,7 +33,7 @@ public class Panel extends JComponent {
     private InputController inputController;
     private Jugador jugador;
     private volatile BasicBlock[][] mundo;
-    private volatile int[][] lightGrid; // niveles de luz [arrayY][x]
+    private volatile Lighting.LightGrid lightGrid;
     private final List<BasicBlock> bloquesVisibles = new ArrayList<>();
     private Camara camara;
     private HudDebug hud;
@@ -140,7 +140,7 @@ public class Panel extends JComponent {
     }
 
     private void recomputeLighting() {
-        this.lightGrid = Lighting.computeSkyLight(this.mundo);
+        this.lightGrid = Lighting.computeLightGrid(this.mundo);
     }
 
     /** Devuelve la coordenada Y (en píxeles) de la parte superior del bloque más alto en la columna de xPx.
@@ -283,7 +283,7 @@ public class Panel extends JComponent {
     public void setMundo(BasicBlock[][] nuevo){ this.mundo = nuevo; }
     public boolean isVsyncEnabled() { return vsyncEnabled; }
     public void setVsyncEnabled(boolean enabled) { this.vsyncEnabled = enabled; }
-    public int[][] getLightGrid() { return lightGrid; }
+    public Lighting.LightGrid getLightGrid() { return lightGrid; }
     public boolean isLightDebugEnabled() { return debugLight; }
 
     public Panel() {

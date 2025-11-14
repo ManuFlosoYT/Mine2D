@@ -75,7 +75,7 @@ public class Jugador {
     }
 
     private Image cargarImagen() {
-        String path = "assets/test.png";
+        String path = "assets/player.png";
         URL url = getClass().getClassLoader().getResource(path);
         if (url != null) {
             return new ImageIcon(url).getImage();
