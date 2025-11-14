@@ -140,7 +140,13 @@ public class Renderer {
         int centerArrY = grid.getHeight() - 1 - tileYTop;
         if (tileX < 0 || tileX >= grid.getWidth() || centerArrY < 0 || centerArrY >= grid.getHeight()) return 1.0;
         int centerLight = grid.getEffectiveLight(centerArrY, tileX);
-        int sum = 0; int count = 0;
+        int[][] kernel = {
+                {1, 2, 1},
+                {2, 4, 2},
+                {1, 2, 1}
+        };
+        double weightedSum = 0;
+        int weightTotal = 0;
         for (int dy = -1; dy <= 1; dy++) {
             for (int dx = -1; dx <= 1; dx++) {
                 int nx = tileX + dx;
@@ -148,14 +154,14 @@ public class Renderer {
                 int nArrY = grid.getHeight() - 1 - nyTop;
                 if (nx < 0 || nx >= grid.getWidth()) continue;
                 if (nArrY < 0 || nArrY >= grid.getHeight()) continue;
-                sum += grid.getEffectiveLight(nArrY, nx);
-                count++;
+                int weight = kernel[dy + 1][dx + 1];
+                weightedSum += weight * grid.getEffectiveLight(nArrY, nx);
+                weightTotal += weight;
             }
         }
-        double avg = (count == 0) ? centerLight / 15.0 : (sum / (double)count) / 15.0;
-        // Nunca oscurecer: usar el máximo entre el brillo original del bloque y el suavizado
         double base = centerLight / 15.0;
-        double result = Math.max(base, avg);
+        double smoothed = (weightTotal > 0) ? (weightedSum / weightTotal) / 15.0 : base;
+        double result = Math.max(base, smoothed);
         if (result < 0) result = 0; else if (result > 1) result = 1;
         return result;
     }
