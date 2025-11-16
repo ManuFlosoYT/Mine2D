@@ -9,6 +9,7 @@ public class Chunk {
     public final int chunkX;
     public final int chunkY;
     private boolean needsSaving = false;
+    private boolean featuresGenerated = false;
 
     public Chunk(int chunkX, int chunkY) {
         this.chunkX = chunkX;
@@ -56,5 +57,13 @@ public class Chunk {
 
     public void saved() {
         needsSaving = false;
+    }
+
+    public boolean needsFeaturesGeneration() {
+        return !featuresGenerated;
+    }
+
+    public void markFeaturesGenerated() {
+        featuresGenerated = true;
     }
 }

@@ -11,8 +11,6 @@ public class Mundo {
     public static final int WORLD_HEIGHT_BLOCKS = 256; // altura lógica total
     private static final int VERTICAL_CHUNKS = (int)Math.ceil(WORLD_HEIGHT_BLOCKS / (double)Chunk.CHUNK_SIZE);
     private static final int LOAD_RADIUS = 3;
-    private static final int AUTO_SAVE_RADIUS = LOAD_RADIUS;
-    private static final int UNLOAD_RADIUS = LOAD_RADIUS + 1;
 
     private final Map<String, Chunk> loadedChunks = new HashMap<>();
     private final long seed;
@@ -166,24 +164,20 @@ public class Mundo {
 
         // Phase 2: For each new chunk, run feature generation on it and its neighbors.
         if (!chunksToUpdateFeatures.isEmpty()) {
-            java.util.Set<Chunk> finalUpdateSet = new java.util.HashSet<>();
-            for (Chunk newChunk : chunksToUpdateFeatures) {
-                // Add the new chunk itself
-                finalUpdateSet.add(newChunk);
-                // Add all 8 of its neighbors
-                for (int dx = -1; dx <= 1; dx++) {
-                    for (int dy = -1; dy <= 1; dy++) {
-                        if (dx == 0 && dy == 0) continue;
-                        Chunk neighbor = getChunk(newChunk.chunkX + dx, newChunk.chunkY + dy);
-                        if (neighbor != null) {
-                            finalUpdateSet.add(neighbor);
-                        }
+            regenerateChunkFeatures(chunksToUpdateFeatures);
+        } else {
+            // Even previously loaded chunks may still need their first feature pass.
+            java.util.Set<Chunk> pending = new java.util.HashSet<>();
+            for (int cx = playerChunkX - LOAD_RADIUS; cx <= playerChunkX + LOAD_RADIUS; cx++) {
+                for (int cy = playerChunkY - LOAD_RADIUS; cy <= playerChunkY + LOAD_RADIUS; cy++) {
+                    Chunk chunk = getChunk(cx, cy);
+                    if (chunk != null && chunk.needsFeaturesGeneration()) {
+                        pending.add(chunk);
                     }
                 }
             }
-
-            for (Chunk chunkToUpdate : finalUpdateSet) {
-                GeneradorMundo.generarFeaturesAdicionales(chunkToUpdate, this);
+            if (!pending.isEmpty()) {
+                regenerateChunkFeatures(pending);
             }
         }
 
@@ -192,17 +186,19 @@ public class Mundo {
     }
 
     private void autoSaveAndCleanupChunks(int playerChunkX, int playerChunkY) {
+        final int autoSaveRadius = LOAD_RADIUS;
+        final int unloadRadius = LOAD_RADIUS + 1;
         java.util.List<String> chunksToRemove = new java.util.ArrayList<>();
         for (Map.Entry<String, Chunk> entry : loadedChunks.entrySet()) {
             Chunk chunk = entry.getValue();
             int dx = Math.abs(chunk.chunkX - playerChunkX);
             int dy = Math.abs(chunk.chunkY - playerChunkY);
 
-            if ((dx > AUTO_SAVE_RADIUS || dy > AUTO_SAVE_RADIUS) && chunk.needsSaving()) {
+            if ((dx > autoSaveRadius || dy > autoSaveRadius) && chunk.needsSaving()) {
                 chunkIOManager.saveChunk(chunk);
             }
 
-            if (dx > UNLOAD_RADIUS || dy > UNLOAD_RADIUS) {
+            if (dx > unloadRadius || dy > unloadRadius) {
                 chunksToRemove.add(entry.getKey());
             }
         }
@@ -211,23 +207,51 @@ public class Mundo {
         }
     }
 
+    private void regenerateChunkFeatures(java.util.Set<Chunk> targetChunks) {
+        java.util.Set<Chunk> finalUpdateSet = new java.util.HashSet<>();
+        for (Chunk newChunk : targetChunks) {
+            finalUpdateSet.add(newChunk);
+            // Add neighbors to ensure beach transitions line up.
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dy = -1; dy <= 1; dy++) {
+                    if (dx == 0 && dy == 0) continue;
+                    Chunk neighbor = getChunk(newChunk.chunkX + dx, newChunk.chunkY + dy);
+                    if (neighbor != null) {
+                        finalUpdateSet.add(neighbor);
+                    }
+                }
+            }
+        }
+
+        for (Chunk chunkToUpdate : finalUpdateSet) {
+            GeneradorMundo.generarFeaturesAdicionales(chunkToUpdate, this);
+            chunkToUpdate.markFeaturesGenerated();
+        }
+    }
+
     /**
      * Carga o genera un chunk concreto de forma sincrónica en este hilo.
      */
     private void ensureChunkExists(int chunkX, int chunkY, java.util.Set<Chunk> newChunks) {
         String k = key(chunkX, chunkY);
-        if (loadedChunks.containsKey(k)) return;
+        if (loadedChunks.containsKey(k)) {
+            Chunk existing = loadedChunks.get(k);
+            if (existing != null && existing.needsFeaturesGeneration() && newChunks != null) {
+                newChunks.add(existing);
+            }
+            return;
+        }
 
         Chunk loaded = chunkIOManager.loadChunk(chunkX, chunkY);
         if (loaded == null) {
             loaded = new Chunk(chunkX, chunkY);
             GeneradorMundo.generarChunk(loaded, seed);
             loaded.markDirty();
-            if (newChunks != null) {
-                newChunks.add(loaded);
-            }
         }
         loadedChunks.put(k, loaded);
+        if (newChunks != null) {
+            newChunks.add(loaded);
+        }
     }
 
     public void ensureChunkLoadedSync(int chunkX, int chunkY) {

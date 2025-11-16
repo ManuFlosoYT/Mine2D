@@ -177,7 +177,7 @@ public class GeneradorMundo {
                 int worldY = chunk.chunkY * alto + y;
 
                 BasicBlock b = mundo.getBlockAtTile(worldX, worldY);
-                if (b == null || "water".equals(b.getId()) || "sand".equals(b.getId())) continue;
+                if (b == null || "sand".equals(b.getId())) continue;
 
                 boolean nearWater = false;
                 for (int dy = -1; dy <= 1 && !nearWater; dy++) {
@@ -190,7 +190,7 @@ public class GeneradorMundo {
                     }
                 }
 
-                if (nearWater) {
+                if (nearWater && ("dirt".equals(b.getId()) || "grass_block".equals(b.getId()))) {
                     double screenY = (worldHeight - 1 - worldY) * size;
                     double screenX = worldX * size;
                     Punto p = new Punto(screenX, screenY);
