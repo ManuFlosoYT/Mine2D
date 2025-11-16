@@ -1,7 +1,6 @@
 package juego.mundo;
 
 import juego.bloques.BasicBlock;
-import juego.bloques.BlockType;
 import juego.bloques.WaterBlock;
 import tipos.Punto;
 
@@ -9,6 +8,8 @@ import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
@@ -19,47 +20,34 @@ public class ChunkIOManager {
     private static final String META_FILE = "meta.dat";
     private static final String CHUNKS_DIR = "chunks/";
 
+    private static final class ArchiveEntries {
+        final Map<String, byte[]> metadataEntries = new LinkedHashMap<>();
+        final Map<String, byte[]> chunkEntries = new LinkedHashMap<>();
+    }
+
     public void saveWorld(Mundo mundo, Punto playerPosition) {
-        System.out.println("[SAVE] Abriendo " + WORLD_FILE + " para escritura...");
-        try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(WORLD_FILE))) {
-            // Save player data
-            System.out.println("[SAVE] Escribiendo " + PLAYER_FILE + " ...");
-            zos.putNextEntry(new ZipEntry(PLAYER_FILE));
-            DataOutputStream dos = new DataOutputStream(zos);
-            dos.writeDouble(playerPosition.x());
-            dos.writeDouble(playerPosition.y());
-            dos.flush();
-            zos.closeEntry();
-            System.out.println("[SAVE] " + PLAYER_FILE + " OK");
-
-            // Save metadata (seed)
-            System.out.println("[SAVE] Escribiendo " + META_FILE + " (seed=" + mundo.getSeed() + ") ...");
-            zos.putNextEntry(new ZipEntry(META_FILE));
-            dos.writeLong(mundo.getSeed());
-            dos.flush();
-            zos.closeEntry();
-            System.out.println("[SAVE] " + META_FILE + " OK");
-
-            // Create chunks directory entry
-            System.out.println("[SAVE] Creando directorio de chunks '" + CHUNKS_DIR + "' ...");
-            zos.putNextEntry(new ZipEntry(CHUNKS_DIR));
-            zos.closeEntry();
-
-            // Save chunks
-            int total = 0;
-            for (Chunk chunk : mundo.getLoadedChunks().values()) {
-                if (chunk.needsSaving()) {
-                    System.out.println("[SAVE] Guardando chunk (" + chunk.chunkX + "," + chunk.chunkY + ") ...");
-                    saveChunk(zos, chunk);
-                    chunk.saved();
-                    total++;
-                }
-            }
-            System.out.println("[SAVE] Guardado completado. Chunks escritos: " + total);
-        } catch (IOException e) {
-            System.err.println("[SAVE] Error guardando el mundo: " + e.getMessage());
-            e.printStackTrace();
+        ArchiveEntries archive = readArchiveEntries();
+        Map<String, byte[]> metadataEntries = archive.metadataEntries;
+        Map<String, byte[]> chunkEntries = archive.chunkEntries;
+        if (playerPosition != null) {
+            metadataEntries.put(PLAYER_FILE, serializePlayerPosition(playerPosition));
         }
+        metadataEntries.put(META_FILE, serializeSeed(mundo.getSeed()));
+        for (Chunk chunk : mundo.getLoadedChunks().values()) {
+            if (chunk.needsSaving()) {
+                chunkEntries.put(entryName(chunk.chunkX, chunk.chunkY), serializeChunk(chunk));
+                chunk.saved();
+            }
+        }
+        writeArchive(metadataEntries, chunkEntries);
+    }
+
+    public void saveChunk(Chunk chunk) {
+        if (chunk == null) return;
+        ArchiveEntries archive = readArchiveEntries();
+        archive.chunkEntries.put(entryName(chunk.chunkX, chunk.chunkY), serializeChunk(chunk));
+        chunk.saved();
+        writeArchive(archive.metadataEntries, archive.chunkEntries);
     }
 
     public Punto loadWorld(Mundo mundo) {
@@ -83,75 +71,29 @@ public class ChunkIOManager {
                 } else if (entry.getName().equals(META_FILE)) {
                     System.out.println("[LOAD] Leyendo " + META_FILE + " ...");
                     DataInputStream dis = new DataInputStream(zis);
-                    long seed = dis.readLong();
-                    // Si quisieras validar seed vs mundo.getSeed(), podrías hacerlo aquí.
+                    dis.readLong(); // seed
                 } else if (entry.getName().startsWith(CHUNKS_DIR)) {
-                    // Chunks on-demand
+                    System.out.println("[LOAD] Encontrado chunk registrado: " + entry.getName());
                 }
                 zis.closeEntry();
             }
             System.out.println("[LOAD] Carga de metadatos completada. Posición jugador: (" + playerPosition.x() + ", " + playerPosition.y() + ")");
         } catch (IOException e) {
             System.err.println("[LOAD] Error cargando el mundo: " + e.getMessage());
-            e.printStackTrace();
         }
         return playerPosition;
     }
 
-
-    public void saveChunk(Chunk chunk) {
-        // Guardado individual no usado en este flujo; se guarda desde saveWorld
-    }
-
-    private void saveChunk(ZipOutputStream zos, Chunk chunk) throws IOException {
-        String chunkFileName = CHUNKS_DIR + "chunk_" + chunk.chunkX + "_" + chunk.chunkY + ".dat";
-        zos.putNextEntry(new ZipEntry(chunkFileName));
-        DataOutputStream dos = new DataOutputStream(zos);
-        for (int y = 0; y < Chunk.CHUNK_SIZE; y++) {
-            for (int x = 0; x < Chunk.CHUNK_SIZE; x++) {
-                BasicBlock block = chunk.getBlock(x, y);
-                if (block == null) {
-                    dos.writeUTF("air");
-                } else {
-                    dos.writeUTF(block.getId());
-                }
-            }
-        }
-        dos.flush(); // no cerrar: cerraría el ZipOutputStream
-        zos.closeEntry();
-    }
-
     public Chunk loadChunk(int chunkX, int chunkY) {
-        Path worldPath = Paths.get(WORLD_FILE);
-        if (!Files.exists(worldPath)) {
-            return null;
-        }
-
-        String chunkFileName = CHUNKS_DIR + "chunk_" + chunkX + "_" + chunkY + ".dat";
-        try (ZipInputStream zis = new ZipInputStream(new FileInputStream(WORLD_FILE))) {
+        String entryName = entryName(chunkX, chunkY);
+        try (ZipInputStream zis = openZip()) {
+            if (zis == null) return null;
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
-                if (entry.getName().equals(chunkFileName)) {
+                if (entryName.equals(entry.getName())) {
                     Chunk chunk = new Chunk(chunkX, chunkY);
                     DataInputStream dis = new DataInputStream(zis);
-                    for (int y = 0; y < Chunk.CHUNK_SIZE; y++) {
-                        for (int x = 0; x < Chunk.CHUNK_SIZE; x++) {
-                            String blockId = dis.readUTF();
-                            if (!"air".equals(blockId)) {
-                                double blockWorldX = (chunkX * Chunk.CHUNK_SIZE + x) * BasicBlock.getSize();
-                                int logicalY = chunkY * Chunk.CHUNK_SIZE + y;
-                                double blockWorldY = (Mundo.WORLD_HEIGHT_BLOCKS - 1 - logicalY) * BasicBlock.getSize();
-                                Punto pos = new Punto(blockWorldX, blockWorldY);
-                                if ("water".equals(blockId)) {
-                                    chunk.setBlockGenerated(x, y, new WaterBlock(pos));
-                                } else {
-                                    chunk.setBlockGenerated(x, y, new BasicBlock(blockId, pos));
-                                }
-                            }
-                        }
-                    }
-                    zis.closeEntry();
-                    chunk.saved();
+                    readChunkData(dis, chunk, chunkX, chunkY);
                     return chunk;
                 }
                 zis.closeEntry();
@@ -160,5 +102,126 @@ public class ChunkIOManager {
             System.err.println("[LOAD] Error cargando chunk (" + chunkX + "," + chunkY + "): " + e.getMessage());
         }
         return null;
+    }
+
+    private ArchiveEntries readArchiveEntries() {
+        ArchiveEntries archive = new ArchiveEntries();
+        try (ZipInputStream zis = openZip()) {
+            if (zis == null) return archive;
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                if (entry.getName().startsWith(CHUNKS_DIR)) {
+                    archive.chunkEntries.put(entry.getName(), zis.readAllBytes());
+                } else {
+                    archive.metadataEntries.put(entry.getName(), zis.readAllBytes());
+                }
+                zis.closeEntry();
+            }
+        } catch (IOException e) {
+            System.err.println("[SAVE] Error leyendo archivo del mundo: " + e.getMessage());
+        }
+        return archive;
+    }
+
+    private void writeArchive(Map<String, byte[]> metadataEntries, Map<String, byte[]> chunkEntries) {
+        try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(WORLD_FILE))) {
+            for (Map.Entry<String, byte[]> entry : metadataEntries.entrySet()) {
+                zos.putNextEntry(new ZipEntry(entry.getKey()));
+                zos.write(entry.getValue());
+                zos.closeEntry();
+            }
+            for (Map.Entry<String, byte[]> entry : chunkEntries.entrySet()) {
+                zos.putNextEntry(new ZipEntry(entry.getKey()));
+                zos.write(entry.getValue());
+                zos.closeEntry();
+            }
+        } catch (IOException e) {
+            System.err.println("[SAVE] Error escribiendo archivo del mundo: " + e.getMessage());
+        }
+    }
+
+    private byte[] serializePlayerPosition(Punto playerPosition) {
+        try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
+             DataOutputStream dos = new DataOutputStream(baos)) {
+            dos.writeDouble(playerPosition.x());
+            dos.writeDouble(playerPosition.y());
+            dos.flush();
+            return baos.toByteArray();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private byte[] serializeSeed(long seed) {
+        try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
+             DataOutputStream dos = new DataOutputStream(baos)) {
+            dos.writeLong(seed);
+            dos.flush();
+            return baos.toByteArray();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private byte[] serializeChunk(Chunk chunk) {
+        try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
+             DataOutputStream dos = new DataOutputStream(baos)) {
+            writeChunkData(dos, chunk);
+            dos.flush();
+            return baos.toByteArray();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private ZipInputStream openZip() throws IOException {
+        Path worldPath = Paths.get(WORLD_FILE);
+        if (!Files.exists(worldPath)) {
+            return null;
+        }
+        return new ZipInputStream(new FileInputStream(WORLD_FILE));
+    }
+
+    private String entryName(int chunkX, int chunkY) {
+        return CHUNKS_DIR + chunkFileName(chunkX, chunkY);
+    }
+
+    private String chunkFileName(int chunkX, int chunkY) {
+        return "chunk_" + chunkX + "_" + chunkY + ".dat";
+    }
+
+    private void writeChunkData(DataOutput dataOutput, Chunk chunk) throws IOException {
+        for (int y = 0; y < Chunk.CHUNK_SIZE; y++) {
+            for (int x = 0; x < Chunk.CHUNK_SIZE; x++) {
+                BasicBlock block = chunk.getBlock(x, y);
+                if (block == null) {
+                    dataOutput.writeUTF("air");
+                } else {
+                    dataOutput.writeUTF(block.getId());
+                }
+            }
+        }
+    }
+
+    private void readChunkData(DataInputStream dataInput, Chunk chunk, int chunkX, int chunkY) throws IOException {
+        for (int y = 0; y < Chunk.CHUNK_SIZE; y++) {
+            for (int x = 0; x < Chunk.CHUNK_SIZE; x++) {
+                String blockId = dataInput.readUTF();
+                if (!"air".equals(blockId)) {
+                    double blockWorldX = (chunkX * Chunk.CHUNK_SIZE + x) * BasicBlock.getSize();
+                    int logicalY = chunkY * Chunk.CHUNK_SIZE + y;
+                    double blockWorldY = (Mundo.WORLD_HEIGHT_BLOCKS - 1 - logicalY) * BasicBlock.getSize();
+                    Punto pos = new Punto(blockWorldX, blockWorldY);
+                    if ("water".equals(blockId)) {
+                        chunk.setBlockGenerated(x, y, new WaterBlock(pos));
+                    } else {
+                        chunk.setBlockGenerated(x, y, new BasicBlock(blockId, pos));
+                    }
+                } else {
+                    chunk.setBlockGenerated(x, y, null);
+                }
+            }
+        }
+        chunk.saved();
     }
 }

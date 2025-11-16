@@ -10,6 +10,9 @@ import java.util.Map;
 public class Mundo {
     public static final int WORLD_HEIGHT_BLOCKS = 256; // altura lógica total
     private static final int VERTICAL_CHUNKS = (int)Math.ceil(WORLD_HEIGHT_BLOCKS / (double)Chunk.CHUNK_SIZE);
+    private static final int LOAD_RADIUS = 3;
+    private static final int AUTO_SAVE_RADIUS = LOAD_RADIUS;
+    private static final int UNLOAD_RADIUS = LOAD_RADIUS + 1;
 
     private final Map<String, Chunk> loadedChunks = new HashMap<>();
     private final long seed;
@@ -154,9 +157,9 @@ public class Mundo {
 
         java.util.Set<Chunk> chunksToUpdateFeatures = new java.util.HashSet<>();
 
-        // Phase 1: Ensure all chunks in the 5x5 area exist and collect new ones.
-        for (int cx = playerChunkX - 2; cx <= playerChunkX + 2; cx++) {
-            for (int cy = playerChunkY - 2; cy <= playerChunkY + 2; cy++) {
+        // Phase 1: Ensure all chunks in the configurable area exist and collect new ones.
+        for (int cx = playerChunkX - LOAD_RADIUS; cx <= playerChunkX + LOAD_RADIUS; cx++) {
+            for (int cy = playerChunkY - LOAD_RADIUS; cy <= playerChunkY + LOAD_RADIUS; cy++) {
                 ensureChunkExists(cx, cy, chunksToUpdateFeatures);
             }
         }
@@ -184,17 +187,28 @@ public class Mundo {
             }
         }
 
-        // Descargar chunks alejados fuera de radio 2
-        loadedChunks.entrySet().removeIf(entry -> {
-            String[] parts = entry.getKey().split("_");
-            int chunkX = Integer.parseInt(parts[0]);
-            int chunkY = Integer.parseInt(parts[1]);
-            boolean shouldUnload = Math.abs(chunkX - playerChunkX) > 2 || Math.abs(chunkY - playerChunkY) > 2;
-            if (shouldUnload && entry.getValue().needsSaving()) {
-                chunkIOManager.saveChunk(entry.getValue());
+        // Descargar / guardar chunks según distancia configurable
+        autoSaveAndCleanupChunks(playerChunkX, playerChunkY);
+    }
+
+    private void autoSaveAndCleanupChunks(int playerChunkX, int playerChunkY) {
+        java.util.List<String> chunksToRemove = new java.util.ArrayList<>();
+        for (Map.Entry<String, Chunk> entry : loadedChunks.entrySet()) {
+            Chunk chunk = entry.getValue();
+            int dx = Math.abs(chunk.chunkX - playerChunkX);
+            int dy = Math.abs(chunk.chunkY - playerChunkY);
+
+            if ((dx > AUTO_SAVE_RADIUS || dy > AUTO_SAVE_RADIUS) && chunk.needsSaving()) {
+                chunkIOManager.saveChunk(chunk);
             }
-            return shouldUnload;
-        });
+
+            if (dx > UNLOAD_RADIUS || dy > UNLOAD_RADIUS) {
+                chunksToRemove.add(entry.getKey());
+            }
+        }
+        for (String key : chunksToRemove) {
+            loadedChunks.remove(key);
+        }
     }
 
     /**
