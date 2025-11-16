@@ -30,9 +30,14 @@ public class PauseMenuPanel extends JPanel {
         resume.setFont(resume.getFont().deriveFont(Font.BOLD, 20f));
         resume.addActionListener(e -> { if (listener != null) listener.onResume(); });
 
-        JButton save = new JButton("Guardar");
+        JButton save = new JButton("Guardar y salir");
         save.setFont(save.getFont().deriveFont(Font.PLAIN, 18f));
-        save.addActionListener(e -> { if (listener != null) listener.onSave(); });
+        save.addActionListener(e -> {
+            if (listener != null) {
+                listener.onSave();
+                listener.onExit();
+            }
+        });
 
         JCheckBox vsync = new JCheckBox("Limitar a VSync");
         vsync.setOpaque(false);
@@ -40,15 +45,10 @@ public class PauseMenuPanel extends JPanel {
         vsync.setSelected(true);
         vsync.addActionListener(e -> { if (listener != null) listener.onToggleVSync(vsync.isSelected()); });
 
-        JButton exit = new JButton("Salir");
-        exit.setFont(exit.getFont().deriveFont(Font.PLAIN, 18f));
-        exit.addActionListener(e -> { if (listener != null) listener.onExit(); });
-
         box.add(title);
         box.add(resume);
         box.add(save);
         box.add(vsync);
-        box.add(exit);
 
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.gridx = 0; gbc.gridy = 0; gbc.insets = new Insets(10,10,10,10);

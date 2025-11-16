@@ -67,7 +67,7 @@ public class ChunkIOManager {
         Path worldPath = Paths.get(WORLD_FILE);
         if (!Files.exists(worldPath)) {
             System.out.println("[LOAD] No existe " + WORLD_FILE + ". Se creará un mundo nuevo.");
-            return playerPosition;
+            return mundo.encontrarSpawnSeguro(0);
         }
 
         System.out.println("[LOAD] Cargando " + WORLD_FILE + " ...");
@@ -126,31 +126,35 @@ public class ChunkIOManager {
         if (!Files.exists(worldPath)) {
             return null;
         }
+
         String chunkFileName = CHUNKS_DIR + "chunk_" + chunkX + "_" + chunkY + ".dat";
-        try (java.util.zip.ZipFile zipFile = new java.util.zip.ZipFile(WORLD_FILE)) {
-            java.util.zip.ZipEntry entry = zipFile.getEntry(chunkFileName);
-            if (entry == null) return null;
-            try (InputStream is = zipFile.getInputStream(entry)) {
-                DataInputStream dis = new DataInputStream(is);
-                Chunk chunk = new Chunk(chunkX, chunkY);
-                for (int y = 0; y < Chunk.CHUNK_SIZE; y++) {
-                    for (int x = 0; x < Chunk.CHUNK_SIZE; x++) {
-                        String blockId = dis.readUTF();
-                        if (!"air".equals(blockId)) {
-                            double blockWorldX = (chunkX * Chunk.CHUNK_SIZE + x) * BasicBlock.getSize();
-                            int logicalY = chunkY * Chunk.CHUNK_SIZE + y;
-                            double blockWorldY = (Mundo.WORLD_HEIGHT_BLOCKS - 1 - logicalY) * BasicBlock.getSize();
-                            Punto pos = new Punto(blockWorldX, blockWorldY);
-                            if ("water".equals(blockId)) {
-                                chunk.setBlockGenerated(x, y, new WaterBlock(pos));
-                            } else {
-                                chunk.setBlockGenerated(x, y, new BasicBlock(blockId, pos));
+        try (ZipInputStream zis = new ZipInputStream(new FileInputStream(WORLD_FILE))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                if (entry.getName().equals(chunkFileName)) {
+                    Chunk chunk = new Chunk(chunkX, chunkY);
+                    DataInputStream dis = new DataInputStream(zis);
+                    for (int y = 0; y < Chunk.CHUNK_SIZE; y++) {
+                        for (int x = 0; x < Chunk.CHUNK_SIZE; x++) {
+                            String blockId = dis.readUTF();
+                            if (!"air".equals(blockId)) {
+                                double blockWorldX = (chunkX * Chunk.CHUNK_SIZE + x) * BasicBlock.getSize();
+                                int logicalY = chunkY * Chunk.CHUNK_SIZE + y;
+                                double blockWorldY = (Mundo.WORLD_HEIGHT_BLOCKS - 1 - logicalY) * BasicBlock.getSize();
+                                Punto pos = new Punto(blockWorldX, blockWorldY);
+                                if ("water".equals(blockId)) {
+                                    chunk.setBlockGenerated(x, y, new WaterBlock(pos));
+                                } else {
+                                    chunk.setBlockGenerated(x, y, new BasicBlock(blockId, pos));
+                                }
                             }
                         }
                     }
+                    zis.closeEntry();
+                    chunk.saved();
+                    return chunk;
                 }
-                chunk.saved();
-                return chunk;
+                zis.closeEntry();
             }
         } catch (IOException e) {
             System.err.println("[LOAD] Error cargando chunk (" + chunkX + "," + chunkY + "): " + e.getMessage());

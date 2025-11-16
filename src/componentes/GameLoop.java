@@ -69,6 +69,10 @@ public class GameLoop implements Runnable {
     @Override
     public void run() {
         long lastTime = System.nanoTime();
+        Mundo mundo = panel.getMundo();
+        if (mundo != null) {
+            mundo.forzarActualizacionInicial(jugador.getPosicion());
+        }
         while (running) {
             if (isPaused.getAsBoolean()) {
                 awaitIfPaused.run();
@@ -80,7 +84,7 @@ public class GameLoop implements Runnable {
             lastTime = inicio;
             if (dt > 0.1) dt = 0.1;
 
-            Mundo mundo = panel.getMundo();
+            mundo = panel.getMundo();
             if (mundo == null) continue;
 
             mundo.update(jugador.getPosicion());
