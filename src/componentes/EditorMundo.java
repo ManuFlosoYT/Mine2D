@@ -2,7 +2,8 @@ package componentes;
 
 import juego.bloques.BasicBlock;
 import juego.Jugador;
-import tipos.Punto; // nuevo import para crear bloques
+import juego.mundo.Mundo;
+import tipos.Punto;
 
 import javax.swing.*;
 import java.awt.event.MouseAdapter;
@@ -12,47 +13,37 @@ import java.util.function.BooleanSupplier;
 import java.util.function.DoubleSupplier;
 
 public class EditorMundo {
-    private volatile BasicBlock[][] mundo; // rejilla [fila(y)][col(x)]
-    private final Camara camara;           // para convertir coords de pantalla -> mundo
-    private final JComponent superficie;   // componente que recibe eventos de mouse
-    private final Thread thread;           // thread de edición
-    private final Jugador jugador;         // referencia al jugador para calcular adyacencia
-    private final BooleanSupplier isPausedSupplier; // proveedor de estado de pausa
-    private final Runnable awaitIfPaused; // bloquea hasta reanudar
+    private volatile Mundo mundo;
+    private final Camara camara;
+    private final JComponent superficie;
+    private final Thread thread;
+    private final Jugador jugador;
+    private final BooleanSupplier isPausedSupplier;
+    private final Runnable awaitIfPaused;
     private volatile boolean running = true;
 
     // Estado del ratón
     private volatile boolean leftDown = false;
-    private volatile int mouseX = 0; // coords de pantalla relativas a superficie
+    private volatile int mouseX = 0;
     private volatile int mouseY = 0;
 
     // Seguimiento del tile objetivo y progreso de rotura
     private volatile int targetTileX = Integer.MIN_VALUE;
     private volatile int targetTileY = Integer.MIN_VALUE;
-    private volatile double holdTimeSeconds = 0.0; // ahora volatile para lectura segura
-    private volatile double currentDureza = 0.0;    // dureza del bloque actual (0 si ninguno)
+    private volatile double holdTimeSeconds = 0.0;
+    private volatile double currentDureza = 0.0;
 
     // Tracking de bloque bajo el cursor
     private volatile int hoverTileX = Integer.MIN_VALUE;
     private volatile int hoverTileY = Integer.MIN_VALUE;
-    private volatile boolean hoverHasBlock = false; // indica si el hover tiene bloque o es aire
+    private volatile boolean hoverHasBlock = false;
 
-    private final DoubleSupplier scaleSupplier; // proveedor de escala de render (>=1)
+    private final DoubleSupplier scaleSupplier;
 
-    // Callback cuando el mundo cambia (colocar/romper)
+    // Callback cuando el mundo cambia
     private Runnable onWorldChanged;
 
-    /**
-     * Crea un editor de mundo asociado a la rejilla de bloques y al jugador.
-     * @param mundo rejilla de bloques [arrayY][x]
-     * @param camara cámara para convertir coordenadas de pantalla a mundo
-     * @param superficie componente Swing receptor de eventos de mouse
-     * @param jugador entidad jugador para alcance y línea de visión
-     * @param isPausedSupplier proveedor de estado de pausa global (true si está en pausa)
-     * @param awaitIfPaused runnable que suspende el hilo hasta reanudar (opcional)
-     * @param scaleSupplier proveedor de escala de render (>=1)
-     */
-    public EditorMundo(BasicBlock[][] mundo, Camara camara, JComponent superficie, Jugador jugador, BooleanSupplier isPausedSupplier, Runnable awaitIfPaused, DoubleSupplier scaleSupplier) {
+    public EditorMundo(Mundo mundo, Camara camara, JComponent superficie, Jugador jugador, BooleanSupplier isPausedSupplier, Runnable awaitIfPaused, DoubleSupplier scaleSupplier) {
         this.mundo = mundo;
         this.camara = camara;
         this.superficie = superficie;
@@ -64,77 +55,52 @@ public class EditorMundo {
         this.thread = new Thread(this::loop, "WorldEditorThread");
     }
 
-    public EditorMundo(BasicBlock[][] mundo, Camara camara, JComponent superficie, Jugador jugador, BooleanSupplier isPausedSupplier) {
-        this(mundo, camara, superficie, jugador, isPausedSupplier, null, null);
-    }
-
-    /** Constructor retrocompatible sin pausa (no recomendado). */
-    public EditorMundo(BasicBlock[][] mundo, Camara camara, JComponent superficie, Jugador jugador) {
-        this(mundo, camara, superficie, jugador, () -> false, null, null);
-    }
-
-    /** Inicia el thread de edición */
     public void start() { thread.start(); }
 
-    /** Detiene el thread de edición */
     public void stop() {
         running = false;
         thread.interrupt();
         try { thread.join(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
     }
 
-    /** Permite actualizar la referencia al mundo si se regenera */
-    public void setMundo(BasicBlock[][] nuevo) { this.mundo = nuevo; }
+    public void setMundo(Mundo nuevo) { this.mundo = nuevo; }
 
-    /** Establece el callback a ejecutar cuando el mundo cambia (colocar/romper bloques) */
     public void setOnWorldChanged(Runnable r) { this.onWorldChanged = r; }
 
     private void instalarMouseListener() {
         MouseAdapter adapter = new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
-                if (isPausedSupplier.getAsBoolean()) return; // ignorar input en pausa
+                if (isPausedSupplier.getAsBoolean()) return;
                 double scale = Math.max(1.0, scaleSupplier.getAsDouble());
+                double size = BasicBlock.getSize();
+                double worldX = camara.getX() + e.getX() / scale;
+                double worldY = camara.getY() + e.getY() / scale;
+                int tileX = (int) Math.floor(worldX / size);
+                int tileY = (int) Math.floor(worldY / size);
+                int worldBlockY = (Mundo.WORLD_HEIGHT_BLOCKS - 1) - tileY;
+
                 if (SwingUtilities.isLeftMouseButton(e)) {
-                    // Si clicas sobre agua, no inicies rotura
-                    BasicBlock[][] local = mundo;
-                    if (local != null) {
-                        double size = BasicBlock.getSize();
-                        int tileX = (int) Math.floor((camara.getX() + e.getX() / scale) / size);
-                        int tileY = (int) Math.floor((camara.getY() + e.getY() / scale) / size);
-                        int arrY = (local.length > 0) ? local.length - 1 - tileY : -1;
-                        if (tileX >= 0 && tileY >= 0 && arrY >= 0 && arrY < local.length && tileX < local[0].length) {
-                            BasicBlock b = local[arrY][tileX];
-                            if (b != null && !b.isBreakable()) {
-                                // agua u otros no rompibles: abortar rotura por completo
-                                leftDown = false;
-                                holdTimeSeconds = 0.0;
-                                targetTileX = Integer.MIN_VALUE;
-                                targetTileY = Integer.MIN_VALUE;
-                                currentDureza = 0.0;
-                                return;
-                            }
-                        }
+                    BasicBlock b = mundo.getBlockAtTile(tileX, worldBlockY);
+                    if (b != null && !b.isBreakable()) {
+                        leftDown = false;
+                        resetBreakState();
+                        return;
                     }
-                    // Caso normal: iniciar seguimiento de rotura
                     leftDown = true;
                     mouseX = (int)Math.round(e.getX() / scale);
                     mouseY = (int)Math.round(e.getY() / scale);
                 } else if (SwingUtilities.isRightMouseButton(e)) {
-                    BasicBlock[][] local = mundo;
-                    if (local == null) return;
-                    double size = BasicBlock.getSize();
-                    int tileX = (int) Math.floor((camara.getX() + e.getX() / scale) / size);
-                    int tileY = (int) Math.floor((camara.getY() + e.getY() / scale) / size);
-                    if (tileX < 0 || tileY < 0) return;
-                    int arrY = local.length - 1 - tileY;
-                    if (arrY < 0 || arrY >= local.length || tileX >= local[0].length) return;
                     Rectangle2D pb = jugador.getBounds();
-                    if (!isTileInteractable(tileX, tileY, pb, size, local)) return; // fuera de rango
-                    // Permitir construir si tile está vacío o es agua.
-                    BasicBlock existing = local[arrY][tileX];
+                    if (!isTileInteractable(tileX, tileY, pb, size, mundo)) return;
+
+                    BasicBlock existing = mundo.getBlockAtTile(tileX, worldBlockY);
                     if (existing == null || "water".equals(existing.getId())) {
-                        local[arrY][tileX] = new BasicBlock("stone", new Punto(tileX * size, tileY * size));
+                        // The block's logical position is determined by the tile coordinates.
+                        // The block's visual position (Punto) must be in screen-based pixel coordinates for rendering.
+                        Punto visualPosition = new Punto(tileX * size, tileY * size);
+                        mundo.setBlockAtTile(tileX, worldBlockY, new BasicBlock("stone", visualPosition));
+                        mundo.markChunkDirty(tileX, worldBlockY); // Mark for lighting update
                         hoverTileX = tileX; hoverTileY = tileY; hoverHasBlock = true;
                         if (onWorldChanged != null) onWorldChanged.run();
                     }
@@ -158,10 +124,7 @@ public class EditorMundo {
             public void mouseReleased(MouseEvent e) {
                 if (SwingUtilities.isLeftMouseButton(e)) {
                     leftDown = false;
-                    // resetear progreso al soltar
-                    holdTimeSeconds = 0.0;
-                    targetTileX = Integer.MIN_VALUE;
-                    targetTileY = Integer.MIN_VALUE;
+                    resetBreakState();
                 }
             }
         };
@@ -169,45 +132,58 @@ public class EditorMundo {
         superficie.addMouseMotionListener(adapter);
     }
 
-    private boolean isTileInteractable(int tileX, int tileY, Rectangle2D pb, double size, BasicBlock[][] world) {
+    private void resetBreakState() {
+        holdTimeSeconds = 0.0;
+        targetTileX = Integer.MIN_VALUE;
+        targetTileY = Integer.MIN_VALUE;
+        currentDureza = 0.0;
+    }
+
+    private boolean isTileInteractable(int tileX, int tileY, Rectangle2D pb, double size, Mundo world) {
+        // tileY is screen-based (top-down). Convert player bounds to the same coordinate system.
         int pMinX = (int) Math.floor(pb.getX() / size);
         int pMinY = (int) Math.floor(pb.getY() / size);
         double eps = 1e-6;
         int pMaxX = (int) Math.floor((pb.getX() + pb.getWidth() - eps) / size);
         int pMaxY = (int) Math.floor((pb.getY() + pb.getHeight() - eps) / size);
 
-        // Alcance: horizontal ±1, vertical ±2
-        int areaMinX = pMinX - 1;
-        int areaMaxX = pMaxX + 1;
-        int areaMinY = pMinY - 2;
-        int areaMaxY = pMaxY + 2;
+        // Define interaction area in screen-based tile coordinates
+        int reach = 4; // Player reach in blocks
+        int areaMinX = pMinX - reach;
+        int areaMaxX = pMaxX + reach;
+        int areaMinY = pMinY - reach;
+        int areaMaxY = pMaxY + reach;
 
-        // Fuera del área
-        if (tileX < areaMinX || tileX > areaMaxX || tileY < areaMinY || tileY > areaMaxY) return false;
-        // Dentro del cuerpo del jugador: no interactuable
-        if (tileX >= pMinX && tileX <= pMaxX && tileY >= pMinY && tileY <= pMaxY) return false;
+        // Check if the target tile is within the interaction area
+        if (tileX < areaMinX || tileX > areaMaxX || tileY < areaMinY || tileY > areaMaxY) {
+            return false;
+        }
+
+        // Prevent interaction with blocks the player is inside
+        if (tileX >= pMinX && tileX <= pMaxX && tileY >= pMinY && tileY <= pMaxY) {
+            return false;
+        }
 
         return hasLineOfSight(tileX, tileY, pMinX, pMaxX, pMinY, pMaxY, world);
     }
 
-    private boolean hasLineOfSight(int tileX, int tileY, int pMinX, int pMaxX, int pMinY, int pMaxY, BasicBlock[][] world) {
+    private boolean hasLineOfSight(int tileX, int tileY, int pMinX, int pMaxX, int pMinY, int pMaxY, Mundo world) {
         int originX = clamp(tileX, pMinX, pMaxX);
         int originY = clamp(tileY, pMinY, pMaxY);
-        // Probar ambos órdenes de recorrido Manhattan
         return pathClearHV(originX, originY, tileX, tileY, world) || pathClearVH(originX, originY, tileX, tileY, world);
     }
 
-    private boolean pathClearHV(int x0, int y0, int x1, int y1, BasicBlock[][] world) {
+    private boolean pathClearHV(int x0, int y0, int x1, int y1, Mundo world) {
         return segmentClearHorizontal(x0, y0, x1, world) && segmentClearVertical(x1, y0, y1, world);
     }
 
-    private boolean pathClearVH(int x0, int y0, int x1, int y1, BasicBlock[][] world) {
+    private boolean pathClearVH(int x0, int y0, int x1, int y1, Mundo world) {
         return segmentClearVertical(x0, y0, y1, world) && segmentClearHorizontal(x0, y1, x1, world);
     }
 
     private int clamp(int v, int min, int max) { return Math.min(Math.max(v, min), max); }
 
-    private boolean segmentClearHorizontal(int x0, int y, int x1, BasicBlock[][] world) {
+    private boolean segmentClearHorizontal(int x0, int y, int x1, Mundo world) {
         int dir = Integer.compare(x1, x0);
         for (int x = x0 + dir; x != x1; x += dir) {
             if (!isAir(x, y, world)) return false;
@@ -215,7 +191,7 @@ public class EditorMundo {
         return true;
     }
 
-    private boolean segmentClearVertical(int x, int y0, int y1, BasicBlock[][] world) {
+    private boolean segmentClearVertical(int x, int y0, int y1, Mundo world) {
         int dir = Integer.compare(y1, y0);
         for (int y = y0 + dir; y != y1; y += dir) {
             if (!isAir(x, y, world)) return false;
@@ -223,59 +199,40 @@ public class EditorMundo {
         return true;
     }
 
-    private boolean isAir(int tileX, int tileY, BasicBlock[][] world) {
-        if (tileY < 0 || tileX < 0) return true;
-        int arrY = world.length - 1 - tileY;
-        if (arrY < 0 || arrY >= world.length || tileX >= world[0].length) return true;
-        BasicBlock b = world[arrY][tileX];
+    private boolean isAir(int tileX, int tileY, Mundo world) {
+        int worldY = (Mundo.WORLD_HEIGHT_BLOCKS - 1) - tileY;
+        BasicBlock b = world.getBlockAtTile(tileX, worldY);
         return b == null || "water".equals(b.getId());
     }
 
     // --- Getters para feedback visual ---
-    /** Tile X objetivo de rotura (o MIN_VALUE si ninguno). */
     public int getTargetTileX() { return targetTileX; }
-    /** Tile Y objetivo de rotura (o MIN_VALUE si ninguno). */
     public int getTargetTileY() { return targetTileY; }
-    /** Progreso normalizado (0..1) de rotura del bloque actual. */
     public double getBreakProgress() {
         if (currentDureza <= 0) return 0.0;
         return Math.min(1.0, holdTimeSeconds / currentDureza);
     }
-    /** Indica si actualmente se está rompiendo un bloque válido. */
     public boolean isBreaking() {
-        if (!leftDown) return false;
-        if (currentDureza <= 0 || holdTimeSeconds <= 0) return false;
+        if (!leftDown || currentDureza <= 0 || holdTimeSeconds <= 0) return false;
         if (targetTileX == Integer.MIN_VALUE || targetTileY == Integer.MIN_VALUE) return false;
-        BasicBlock[][] local = mundo;
-        if (local == null || local.length == 0) return false;
-        int arrY = local.length - 1 - targetTileY;
-        if (arrY < 0 || arrY >= local.length || targetTileX < 0 || targetTileX >= local[0].length) return false;
-        BasicBlock b = local[arrY][targetTileX];
+        int worldBlockY = (Mundo.WORLD_HEIGHT_BLOCKS - 1) - targetTileY;
+        BasicBlock b = mundo.getBlockAtTile(targetTileX, worldBlockY);
         return b != null && b.isBreakable();
     }
-    /** Tile X bajo el cursor interactuable (o MIN_VALUE si ninguno). */
     public int getHoverTileX() { return hoverTileX; }
-    /** Tile Y bajo el cursor interactuable (o MIN_VALUE si ninguno). */
     public int getHoverTileY() { return hoverTileY; }
-    /** True si el cursor está sobre un tile dentro del rango de interacción. */
     public boolean isHoveringInteractable() { return hoverTileX != Integer.MIN_VALUE && hoverTileY != Integer.MIN_VALUE; }
-    /** True si bajo el cursor hay un bloque (false si es aire). */
     public boolean hoverHasBlock() { return hoverHasBlock; }
 
     private void loop() {
         long last = System.nanoTime();
         while (running) {
             if (isPausedSupplier.getAsBoolean()) {
-                // Congelar: resetear estados de interacción y no tocar el mundo
                 leftDown = false;
-                holdTimeSeconds = 0.0;
-                targetTileX = Integer.MIN_VALUE;
-                targetTileY = Integer.MIN_VALUE;
-                currentDureza = 0.0;
+                resetBreakState();
                 hoverTileX = Integer.MIN_VALUE;
                 hoverTileY = Integer.MIN_VALUE;
                 hoverHasBlock = false;
-                // Suspender hasta reanudar
                 awaitIfPaused.run();
                 last = System.nanoTime();
                 continue;
@@ -286,64 +243,44 @@ public class EditorMundo {
             last = now;
 
             final double size = BasicBlock.getSize();
+            Mundo localMundo = mundo;
 
-            BasicBlock[][] local = mundo;
-            if (local != null) {
-                double worldXHover = camara.getX() + mouseX; // mouseX ya dividido por escala
+            if (localMundo != null) {
+                double worldXHover = camara.getX() + mouseX;
                 double worldYHover = camara.getY() + mouseY;
                 int htx = (int)Math.floor(worldXHover / size);
                 int hty = (int)Math.floor(worldYHover / size);
-                int harrY = local.length - 1 - hty;
-                if (htx >= 0 && hty >= 0 && harrY >= 0 && harrY < local.length && htx < local[0].length) {
-                    Rectangle2D pbHover = jugador.getBounds();
-                    if (isTileInteractable(htx, hty, pbHover, size, local)) {
-                        hoverTileX = htx;
-                        hoverTileY = hty;
-                        hoverHasBlock = local[harrY][htx] != null; // true si hay bloque
-                    } else {
-                        hoverTileX = Integer.MIN_VALUE;
-                        hoverTileY = Integer.MIN_VALUE;
-                        hoverHasBlock = false;
-                    }
+                int htyWorld = (Mundo.WORLD_HEIGHT_BLOCKS - 1) - hty;
+
+                Rectangle2D pbHover = jugador.getBounds();
+                if (isTileInteractable(htx, hty, pbHover, size, localMundo)) {
+                    hoverTileX = htx;
+                    hoverTileY = hty;
+                    hoverHasBlock = localMundo.getBlockAtTile(htx, htyWorld) != null;
                 } else {
                     hoverTileX = Integer.MIN_VALUE;
                     hoverTileY = Integer.MIN_VALUE;
                     hoverHasBlock = false;
                 }
-            } else {
-                hoverTileX = Integer.MIN_VALUE;
-                hoverTileY = Integer.MIN_VALUE;
-                hoverHasBlock = false;
-            }
 
-            if (leftDown && local != null) {
-                double worldX = camara.getX() + mouseX; // mouseX/mouseY ya están en coord. mundo
-                double worldY = camara.getY() + mouseY;
-                int tileX = (int) Math.floor(worldX / size);
-                int tileY = (int) Math.floor(worldY / size);
-                int arrYBreak = local.length - 1 - tileY;
-                if (tileY >= 0 && tileX >= 0 && arrYBreak >= 0 && arrYBreak < local.length && tileX < local[0].length) {
+                if (leftDown) {
+                    double worldX = camara.getX() + mouseX;
+                    double worldY = camara.getY() + mouseY;
+                    int tileX = (int) Math.floor(worldX / size);
+                    int tileY = (int) Math.floor(worldY / size);
+                    int worldBlockYLoop = (Mundo.WORLD_HEIGHT_BLOCKS - 1) - tileY;
+
                     Rectangle2D pb = jugador.getBounds();
-                    if (!isTileInteractable(tileX, tileY, pb, size, local)) {
-                        // ...existing reset...
+                    if (!isTileInteractable(tileX, tileY, pb, size, localMundo)) {
+                        resetBreakState();
                     } else {
-                        BasicBlock b = local[arrYBreak][tileX];
-                        // Bloques no rompibles (agua) no acumulan progreso
+                        BasicBlock b = localMundo.getBlockAtTile(tileX, worldBlockYLoop);
                         if (b != null && !b.isBreakable()) {
-                            // bloque no rompible: cancelar rotura
                             leftDown = false;
-                            holdTimeSeconds = 0.0;
-                            targetTileX = Integer.MIN_VALUE;
-                            targetTileY = Integer.MIN_VALUE;
-                            currentDureza = 0.0;
+                            resetBreakState();
                         } else if (b == null) {
-                            // ...existing reset when null...
-                            holdTimeSeconds = 0.0;
-                            targetTileX = Integer.MIN_VALUE;
-                            targetTileY = Integer.MIN_VALUE;
-                            currentDureza = 0.0;
+                            resetBreakState();
                         } else {
-                            // ...existing progress/romper lógica...
                             if (tileX != targetTileX || tileY != targetTileY) {
                                 targetTileX = tileX;
                                 targetTileY = tileY;
@@ -351,36 +288,26 @@ public class EditorMundo {
                                 currentDureza = b.getDureza();
                             }
                             holdTimeSeconds += dt;
-                            double dureza = b.getDureza();
-                            currentDureza = dureza;
-                            if (holdTimeSeconds >= dureza) {
-                                local[arrYBreak][tileX] = null;
-                                holdTimeSeconds = 0.0;
-                                targetTileX = Integer.MIN_VALUE;
-                                targetTileY = Integer.MIN_VALUE;
-                                currentDureza = 0.0;
+                            if (holdTimeSeconds >= currentDureza) {
+                                localMundo.setBlockAtTile(tileX, worldBlockYLoop, null);
+                                localMundo.markChunkDirty(tileX, worldBlockYLoop); // Mark for lighting update
+                                resetBreakState();
                                 if (hoverTileX == tileX && hoverTileY == tileY) hoverHasBlock = false;
                                 if (onWorldChanged != null) onWorldChanged.run();
                             }
                         }
                     }
                 } else {
-                    // ...existing reset out of bounds...
-                    holdTimeSeconds = 0.0;
-                    targetTileX = Integer.MIN_VALUE;
-                    targetTileY = Integer.MIN_VALUE;
-                    currentDureza = 0.0;
+                    resetBreakState();
                 }
             } else {
-                // ...existing no-press reset...
-                holdTimeSeconds = 0.0;
-                targetTileX = Integer.MIN_VALUE;
-                targetTileY = Integer.MIN_VALUE;
-                currentDureza = 0.0;
+                hoverTileX = Integer.MIN_VALUE;
+                hoverTileY = Integer.MIN_VALUE;
+                hoverHasBlock = false;
+                resetBreakState();
             }
 
             try { Thread.sleep(10); } catch (InterruptedException e) { if (!running) break; }
-            // Sleep breve para reducir uso de CPU
         }
     }
 }

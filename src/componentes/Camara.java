@@ -2,6 +2,7 @@ package componentes;
 
 import juego.Jugador;
 import juego.bloques.BasicBlock;
+import juego.mundo.Mundo;
 
 /**
  * Gestiona la posición de la cámara y su seguimiento suave del jugador.
@@ -41,18 +42,15 @@ public class Camara {
      * @param mundo rejilla de bloques (puede ser null)
      * @param dt delta tiempo en segundos; si dt <= 0 se hace "snap" instantáneo
      */
-    public void update(Jugador jugador, BasicBlock[][] mundo, double dt) {
+    public void update(Jugador jugador, Mundo mundo, double dt) {
         if (jugador == null) return;
-        double size = BasicBlock.getSize();
-        double worldHeightPx = (mundo != null ? mundo.length : 0) * size;
-        double worldWidthPx = (mundo != null && mundo.length > 0 ? mundo[0].length : 0) * size;
 
-        // Datos jugador
         double playerX = jugador.getX();
         double playerY = jugador.getY();
-        double playerSize = jugador.getAltoPx();
-        double playerRight = playerX + playerSize;
-        double playerBottom = playerY + playerSize;
+        double playerWidth = jugador.getAnchoPx();
+        double playerHeight = jugador.getAltoPx();
+        double playerRight = playerX + playerWidth;
+        double playerBottom = playerY + playerHeight;
 
         // Umbrales actuales
         double leftThreshold = x + viewportWidth * TERCIO_IZQUIERDO;
@@ -76,14 +74,15 @@ public class Camara {
             desiredY = playerBottom - viewportHeight * TERCIO_INFERIOR;
         }
 
-        // Clamps
-        if (desiredX < 0) desiredX = 0;
-        double maxCamX = Math.max(0, worldWidthPx - viewportWidth);
-        if (desiredX > maxCamX) desiredX = maxCamX;
+        // Clamps have been removed for the infinite world
 
-        if (desiredY < 0) desiredY = 0;
-        double maxCamY = Math.max(0, worldHeightPx - viewportHeight);
-        if (desiredY > maxCamY) desiredY = maxCamY;
+        // Clamping vertical usando mundo si disponible
+        if (mundo != null) {
+            double worldPixelHeight = mundo.getWorldPixelHeight();
+            if (desiredY < 0) desiredY = 0;
+            double maxCamY = Math.max(0, worldPixelHeight - viewportHeight);
+            if (desiredY > maxCamY) desiredY = maxCamY;
+        }
 
         // Snap si inicial
         if (dt <= 0) {
@@ -101,8 +100,8 @@ public class Camara {
         if (Math.abs(desiredY - y) < 0.1) y = desiredY;
     }
 
-    /** Posición X de la cámara en píxeles del mundo. */
     public double getX() { return x; }
-    /** Posición Y de la cámara en píxeles del mundo. */
     public double getY() { return y; }
+    public int getViewportWidth() { return viewportWidth; }
+    public int getViewportHeight() { return viewportHeight; }
 }

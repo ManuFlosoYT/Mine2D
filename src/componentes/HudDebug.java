@@ -16,11 +16,18 @@ public class HudDebug {
     // Posición del jugador
     private double playerX = 0.0;
     private double playerY = 0.0;
+    private int playerChunkX = 0;
+    private int playerChunkY = 0;
 
     /** Actualiza la posición a mostrar en el HUD. */
     public void setPlayerPosition(double x, double y) {
         this.playerX = x;
         this.playerY = y;
+    }
+
+    public void setPlayerChunk(int cx, int cy) {
+        this.playerChunkX = cx;
+        this.playerChunkY = cy;
     }
 
     /**
@@ -52,7 +59,7 @@ public class HudDebug {
 
         // Fondo semitransparente más alto para 4 líneas
         g.setColor(new Color(0,0,0,140));
-        g.fillRoundRect(8, 8, 200, 100, 8, 8);
+        g.fillRoundRect(8, 8, 200, 120, 8, 8);
 
         g.setColor(Color.WHITE);
         int x = 16;
@@ -62,10 +69,12 @@ public class HudDebug {
         String ftTxt = String.format("Frame: %.2f ms", hudFrameTimeMs);
         String pxTxt = "X(blocks): " + (int)playerX;
         String pyTxt = "Y(blocks): " + (int)playerY;
+        String chunkTxt = "Chunk: " + playerChunkX + ", " + playerChunkY;
         g.drawString(fpsTxt, x, y); y += dy;
         g.drawString(ftTxt, x, y); y += dy;
         g.drawString(pxTxt, x, y); y += dy;
-        g.drawString(pyTxt, x, y);
+        g.drawString(pyTxt, x, y); y += dy;
+        g.drawString(chunkTxt, x, y);
 
         g.setTransform(old);
     }

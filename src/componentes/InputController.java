@@ -20,6 +20,9 @@ public class InputController {
                 case KeyEvent.VK_A -> input.setKeyA(true);
                 case KeyEvent.VK_D -> input.setKeyD(true);
                 case KeyEvent.VK_SPACE -> input.pressSpace();
+                case KeyEvent.VK_SHIFT -> input.setKeyShift(true);
+                case KeyEvent.VK_F6 -> input.toggleNoclip();
+                case KeyEvent.VK_F7 -> input.toggleDebugChunkGrid();
                 default -> {}
             }
         }
@@ -29,6 +32,7 @@ public class InputController {
                 case KeyEvent.VK_SPACE -> input.releaseSpace();
                 case KeyEvent.VK_A -> input.setKeyA(false);
                 case KeyEvent.VK_D -> input.setKeyD(false);
+                case KeyEvent.VK_SHIFT -> input.setKeyShift(false);
                 default -> {}
             }
         }

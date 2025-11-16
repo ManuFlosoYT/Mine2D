@@ -37,9 +37,13 @@ public class Jugador {
     private static final double VX_FRICTION = 1100;  // px/s^2 fricción cuando no se pulsa nada
     private static final double VX_MAX = 300;        // px/s velocidad horizontal máxima
 
-    private static final double GRAVEDAD = 1500;      // px/s^2 gravedad
-    private static final double VY_SALTO = 500;      // px/s velocidad inicial de salto
-    private static final double VY_MAX_CAIDA = 1200;  // px/s límite máximo de caída
+    private static final double NOCLIP_SPEED = 1200; // px/s velocidad en modo noclip
+
+    // En este sistema consideramos que Y física crece hacia ARRIBA, por lo que
+    // una gravedad positiva reduce Y (empuja hacia abajo) y un salto aumenta Y.
+    private static final double GRAVEDAD = 1800;      // px/s^2 gravedad (reduce Y)
+    private static final double VY_SALTO = 550;       // px/s velocidad inicial de salto (aumenta Y)
+    private static final double VY_MAX_CAIDA = 1200;  // px/s límite máximo de caída (magnitud)
 
     // Parámetros de física en agua
     private static final double WATER_GRAVITY = 400;        // gravedad reducida en agua
@@ -106,10 +110,17 @@ public class Jugador {
         return (int) HEIGHT; // altura del sprite (1.8 bloques)
     }
 
+    /** Ancho visual/colisional del jugador en píxeles. */
+    public int getAnchoPx(){ return (int) WIDTH; }
+
     /** Coloca al jugador en la posición indicada. */
     public void colocar(Punto p){
         this.x = p.x();
         this.y = p.y();
+    }
+
+    public Punto getPosicion() {
+        return new Punto(x, y);
     }
 
     /**
@@ -164,10 +175,28 @@ public class Jugador {
      * @param bloques lista de bloques cercanos para pruebas de colisión
      */
     public void update(Input input, double dt, List<BasicBlock> bloques){
+        // Noclip activo?
+        boolean noclip = input.isNoclipActive();
         // --- INPUT: izquierda/derecha ---
         boolean left = input.isKeyA();
         boolean right = input.isKeyD();
 
+        if (noclip) {
+            // Movimiento horizontal libre sin fricción/gravedad
+            if (left && !right) vx = -NOCLIP_SPEED; else if (right && !left) vx = NOCLIP_SPEED; else vx = 0;
+            // Movimiento vertical libre controlado por SPACE/SHIFT
+            if (input.isKeySpace() && !input.isKeyShift()) {
+                vy = -NOCLIP_SPEED; // subir (Y de pantalla disminuye)
+            } else if (input.isKeyShift() && !input.isKeySpace()) {
+                vy = NOCLIP_SPEED; // bajar (Y de pantalla aumenta)
+            } else {
+                vy = 0;
+            }
+            // Integración directa sin colisiones
+            x += vx * dt;
+            y += vy * dt;
+            return; // saltar resto de física
+        }
         // Detectar si está dentro del agua (intersección con cualquier bloque de agua)
         boolean enAgua = false;
         Rectangle2D pbActual = getBounds();
@@ -237,7 +266,7 @@ public class Jugador {
         // --- Decidir salto ANTES de integrar eje Y ---
         if (!enAgua || soportadoPre) {
             if (jumpBufferTimer > 0 && (enSuelo || coyoteTimer > 0 || soportadoPre)) {
-                vy = -VY_SALTO; // hacia arriba
+                vy = -VY_SALTO; // salto: velocidad vertical negativa (hacia arriba en pantalla)
                 enSuelo = false;
                 jumpBufferTimer = 0; // consumir buffer al usarlo
                 coyoteTimer = 0;
@@ -251,17 +280,18 @@ public class Jugador {
         if (enAgua && !soportadoPre) {
             // Hundimiento suave por defecto
             if (input.isKeySpace()) {
-                // Nadar hacia arriba
+                // Nadar hacia arriba (disminuir Y de pantalla)
                 vy -= WATER_UP_ACCEL * dt;
                 if (vy < -SWIM_UP_SPEED) vy = -SWIM_UP_SPEED;
             } else {
-                // Tender hacia hundirse lentamente
+                // Tender hacia hundirse lentamente (aumentar Y de pantalla)
                 vy += Math.max(WATER_GRAVITY, WATER_DOWN_ACCEL) * dt;
                 if (vy > SWIM_DOWN_SPEED) vy = SWIM_DOWN_SPEED;
             }
         } else {
             if (!enSuelo) {
-                vy += GRAVEDAD * dt; // hacia abajo positiva
+                // Gravedad: aumentar Y de pantalla (vy positiva al caer)
+                vy += GRAVEDAD * dt;
                 if (vy > VY_MAX_CAIDA) vy = VY_MAX_CAIDA;
             }
         }
@@ -285,20 +315,20 @@ public class Jugador {
         x = nuevoX;
 
         // --- Integración y colisión eje Y ---
-        double nuevoY = y + vy * dt;
+        double nuevoY = y + vy * dt; // Y pantalla aumenta cuando vy es positiva (caída)
         Rectangle2D futuroY = new Rectangle2D.Double(x, nuevoY, WIDTH, HEIGHT);
         enSuelo = false;
         for (BasicBlock b : bloques) {
             if (b.getType() == BlockType.WATER) continue; // agua no colisiona
             if (futuroY.intersects(b.getBounds())) {
                 Rectangle2D br = b.getBounds();
-                if (vy > 0) { // cayendo
-                    nuevoY = br.getY() - HEIGHT; // arriba del bloque
+                if (vy < 0) { // subiendo (vy negativa, sube en pantalla)
+                    nuevoY = br.getY() + br.getHeight(); // por debajo (techo)
+                    vy = 0;
+                } else if (vy > 0) { // cayendo (vy positiva, baja en pantalla)
+                    nuevoY = br.getY() - HEIGHT; // colocar encima del bloque
                     vy = 0;
                     enSuelo = true;
-                } else if (vy < 0) { // subiendo
-                    nuevoY = br.getY() + br.getHeight(); // debajo (techo)
-                    vy = 0;
                 }
                 break; // una colisión vertical es suficiente
             }

@@ -2,6 +2,7 @@ package componentes;
 
 import juego.Jugador;
 import juego.bloques.BasicBlock;
+import juego.mundo.Chunk;
 
 import java.awt.*;
 import java.awt.geom.AffineTransform;
@@ -128,6 +129,30 @@ public class Renderer {
                 g.drawRect(barX, barY, barWidth, barHeight);
             }
         }
+        g.setTransform(old);
+    }
+
+    public void drawChunkGrid(Graphics2D g, Camara camara, double scale) {
+        if (g == null || camara == null) return;
+        AffineTransform old = g.getTransform();
+        g.scale(scale, scale);
+        g.translate(-camara.getX(), -camara.getY());
+
+        g.setColor(new Color(255, 0, 0, 100));
+        g.setStroke(new BasicStroke(2.0f / (float)scale));
+
+        double chunkSize = BasicBlock.getSize() * Chunk.CHUNK_SIZE; // uses updated 16
+        int minChunkX = (int)Math.floor(camara.getX() / chunkSize) - 1;
+        int maxChunkX = (int)Math.floor((camara.getX() + camara.getViewportWidth() / scale) / chunkSize) + 1;
+        int minChunkY = (int)Math.floor(camara.getY() / chunkSize) - 1;
+        int maxChunkY = (int)Math.floor((camara.getY() + camara.getViewportHeight() / scale) / chunkSize) + 1;
+
+        for (int cx = minChunkX; cx <= maxChunkX; cx++) {
+            for (int cy = minChunkY; cy <= maxChunkY; cy++) {
+                g.drawRect((int)(cx * chunkSize), (int)(cy * chunkSize), (int)chunkSize, (int)chunkSize);
+            }
+        }
+
         g.setTransform(old);
     }
 

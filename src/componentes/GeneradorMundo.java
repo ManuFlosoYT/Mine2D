@@ -1,157 +1,202 @@
 package componentes;
 
 import juego.bloques.BasicBlock;
+import juego.bloques.WaterBlock;
+import juego.mundo.Chunk;
 import tipos.Punto;
 
+import java.util.HashMap;
+import java.util.Map;
+
 /**
- * Utilidad para crear una rejilla de bloques inicial del mundo.
- *
- * <p>La matriz resultante se indexa como [arrayY][x], donde arrayY=0 corresponde a la fila inferior.
- * Cada celda contiene un {@link BasicBlock} o null (aire).</p>
+ * Utilidad para rellenar un chunk con el terreno del mundo.
  */
 public class GeneradorMundo {
 
-    /**
-     * Genera un mundo rectangular de tamaño dado con variaciones suaves de altitud.
-     * Primero se calcula, para cada columna, una altura de terreno usando la suma de ondas senoidales
-     * (tres octavas) para simular ruido suave. Luego se rellena con piedra hasta esa altura y,
-     * finalmente, para cada columna se marca la superficie con grass_block y sus tres bloques
-     * inferiores con dirt.
-     * @param ancho número de columnas de bloques
-     * @param alto número de filas de bloques
-     * @param offsetX desplazamiento X en píxeles para posicionar el mundo
-     * @param offsetY desplazamiento Y en píxeles para posicionar el mundo
-     * @return matriz de bloques [arrayY][x] (arrayY=0 es la fila inferior)
-     */
-    public static BasicBlock[][] generar(int ancho, int alto, double offsetX, double offsetY) {
-        final int WATER_LEVEL = 63; // agua hasta Y=63 inclusive
-        if (ancho < 256) ancho = 256;
-        if (alto < 128) alto = 128;
-        BasicBlock[][] mundo = new BasicBlock[alto][ancho];
-        final double size = BasicBlock.getSize();
+    private static final int ALTURA_GEN_MEDIA = 55;
 
-        // Ajustes: bajar ligeramente la base para permitir que aparezcan zonas por debajo del agua.
-        // Ahora la base se sitúa al 0.55 de la altura total (antes 0.60) para que la mayoría del terreno quede por encima del agua.
-        double baseFrac = 0.55; // antes 0.60
-        double base = alto * baseFrac;
+    private static final int[] SEGMENTS = {
+            Math.max(2, 1024 / 192), // Longer, smoother base segments
+            Math.max(4, 1024 / 128),
+            Math.max(8, 1024 / 64),
+            Math.max(16, 1024 / 32),
+            Math.max(32, 1024 / 16)
+    };
+    private static final double[] AMPLITUDES_BASE = {
+            256 * 0.04,  // Reduced amplitudes for flatter terrain
+            256 * 0.03,
+            256 * 0.02,
+            256 * 0.01,
+            256 * 0.005
+    };
 
-        // Más picos: añadir octava extra y subir amplitudes de altas frecuencias.
-        int[] segments = {
-                Math.max(4, ancho / 96),    // muy larga (menor impacto)
-                Math.max(8, ancho / 48),
-                Math.max(16, ancho / 24),
-                Math.max(32, ancho / 12),
-                Math.max(64, ancho / 6)     // nueva octava de detalle fino
-        };
-        double[] amplitudes = {
-                alto * 0.08, // base
-                alto * 0.07,
-                alto * 0.06,
-                alto * 0.05,
-                alto * 0.035 // detalle fino
-        };
+    private static final Map<Long, double[][]> OCTAVES_BY_SEED = new HashMap<>();
 
-        java.util.Random rand = new java.util.Random(987654321L); // nueva seed para diferente perfil
-        double[][] octaveValues = new double[segments.length][];
-        for (int o = 0; o < segments.length; o++) {
-            int segCount = segments[o] + 1;
+    private static double[][] getOctaves(long worldSeed) {
+        double[][] cached = OCTAVES_BY_SEED.get(worldSeed);
+        if (cached != null) return cached;
+        java.util.Random rand = new java.util.Random(worldSeed);
+        double[][] octaveValues = new double[SEGMENTS.length][];
+        for (int o = 0; o < SEGMENTS.length; o++) {
+            int segCount = SEGMENTS[o] + 1;
             double[] vals = new double[segCount];
             for (int i = 0; i < segCount; i++) {
-                // Amplificar variación vertical usando distribución sesgada
                 double r = rand.nextDouble();
-                double v = (Math.pow(r, 0.6) * 2.0) - 1.0; // sesgo hacia extremos
+                double v = (Math.pow(r, 0.6) * 2.0) - 1.0;
                 vals[i] = v;
             }
             octaveValues[o] = vals;
         }
+        OCTAVES_BY_SEED.put(worldSeed, octaveValues);
+        return octaveValues;
+    }
 
+    /**
+     * Rellena un chunk dado con terreno generado proceduralmente.
+     * La generación es determinista basada en la semilla del mundo y las coordenadas del chunk.
+     *
+     * Sistema de coordenadas: Y = 0 está en el fondo del mundo y crece hacia ARRIBA.
+     */
+    public static void generarChunk(Chunk chunk, long worldSeed) {
+        final int WATER_LEVEL = 63;          // altura (en bloques) del agua por encima del fondo
+        final int ancho = Chunk.CHUNK_SIZE;  // ancho del chunk en bloques
+        final int alto = Chunk.CHUNK_SIZE;   // alto del chunk en bloques
+        // Altura "global" usada solo para escalar el ruido vertical (no recorta el mundo)
+        final int worldHeight = 256;
+
+        final double size = BasicBlock.getSize();
+        // Offset en coordenadas de mundo (bloques) para este chunk
+        double offsetX = chunk.chunkX * ancho * size;
+        double offsetY = chunk.chunkY * alto * size;
+
+        // Perfil base de terreno (altura medida desde el fondo, Y=0 abajo)
+        double baseFrac = (double) ALTURA_GEN_MEDIA / worldHeight;
+        double base = worldHeight * baseFrac; // altura base en bloques desde el fondo
+
+        double[][] octaveValues = getOctaves(worldSeed);
+
+        // hTop[x] = altura del terreno en bloques desde el fondo (0 abajo, worldHeight arriba)
         int[] hTop = new int[ancho];
         for (int x = 0; x < ancho; x++) {
+            double worldX = chunk.chunkX * ancho + x; // coordenada X global en bloques (puede ser negativa)
             double h = base;
-            double xf = (double)x / (ancho - 1);
-            for (int o = 0; o < segments.length; o++) {
-                int segs = segments[o];
-                double pos = xf * segs;
-                int i0 = (int)Math.floor(pos);
-                int i1 = Math.min(segs, i0 + 1);
-                double t = pos - i0;
-                double tt = t * t * (3 - 2 * t); // smoothstep
+            // Normalizamos sobre un ancho base, pero luego aplicamos modulo para hacerlo infinito y evitar índices negativos
+            for (int o = 0; o < SEGMENTS.length; o++) {
+                int segs = SEGMENTS[o];
+                // pos original (sin modulo) usando un ancho base 1024.0
+                double pos = (worldX / 1024.0) * segs;
+                // Evitar índices fuera de rango: hacer wrap cíclico
+                pos = pos % segs;
+                if (pos < 0) pos += segs; // garantizar [0,segs)
+                int i0 = (int) Math.floor(pos);           // 0 .. segs-1
+                int i1 = (i0 + 1);                        // 1 .. segs
+                if (i1 >= segs) i1 = 0;                   // Wrap around for seamless terrain
+                double t = pos - i0;                      // fracción local
+                double tt = t * t * (3 - 2 * t);          // suavizado hermite
                 double v0 = octaveValues[o][i0];
-                double v1 = octaveValues[o][i1];
+                double v1 = octaveValues[o][i1]; // i1 is now wrapped, safe
                 double v = v0 + (v1 - v0) * tt;
-                h += v * amplitudes[o];
+                double amp = AMPLITUDES_BASE[o];
+                h += v * amp;
             }
             if (h < 4) h = 4;
-            if (h > alto - 1) h = alto - 1;
-            hTop[x] = (int)Math.round(h);
+            if (h > worldHeight - 1) h = worldHeight - 1;
+            hTop[x] = (int) Math.round(h);
         }
 
-        // Eliminado: no forzar elevación mínima sobre el nivel del agua para permitir lagos / zonas inundadas.
-
-        // Rellenar piedra hasta hTop[x]
-        for (int arrayY = 0; arrayY < alto; arrayY++) {
+        // hTop calculado
+        // Limpiar primero el chunk (aire)
+        for (int y = 0; y < alto; y++) {
             for (int x = 0; x < ancho; x++) {
-                if (arrayY <= hTop[x]) {
-                    Punto p = new Punto(offsetX + x * size, offsetY + (alto - 1 - arrayY) * size);
-                    mundo[arrayY][x] = new BasicBlock("stone", p);
-                } else {
-                    mundo[arrayY][x] = null;
-                }
+                chunk.setBlockGenerated(x, y, null);
             }
         }
 
-        // Capa superficial: grass top + 3 dirt debajo
+        // Piedra profunda hasta top-4
         for (int x = 0; x < ancho; x++) {
-            int top = -1;
-            for (int arrayY = alto - 1; arrayY >= 0; arrayY--) {
-                if (mundo[arrayY][x] != null) { top = arrayY; break; }
-            }
-            if (top < 0) continue;
-            Punto pTop = new Punto(offsetX + x * size, offsetY + (alto - 1 - top) * size);
-            mundo[top][x] = new BasicBlock("grass_block", pTop);
-            for (int i = 1; i <= 3; i++) {
-                int yb = top - i;
-                if (yb < 0) break;
-                Punto pb = new Punto(offsetX + x * size, offsetY + (alto - 1 - yb) * size);
-                mundo[yb][x] = new BasicBlock("dirt", pb);
-            }
-        }
-
-        // Agua: rellenar aire desde el fondo hasta WATER_LEVEL (63) inclusive
-        int waterMaxArrayY = Math.min(WATER_LEVEL, alto - 1);
-        for (int arrayY = 0; arrayY <= waterMaxArrayY; arrayY++) {
-            for (int x = 0; x < ancho; x++) {
-                if (mundo[arrayY][x] == null) {
-                    Punto p = new Punto(offsetX + x * size, offsetY + (alto - 1 - arrayY) * size);
-                    mundo[arrayY][x] = new juego.bloques.WaterBlock(p);
+            int topWorldY = hTop[x];
+            int stoneMax = topWorldY - 4; // deja espacio para 1 grass + 3 dirt
+            if (stoneMax < 0) stoneMax = -1; // si top <4 no hay piedra superficial
+            for (int y = 0; y < alto; y++) {
+                int worldY = chunk.chunkY * alto + y;
+                if (worldY <= stoneMax) {
+                    double screenY = (worldHeight - 1 - worldY) * size;
+                    Punto p = new Punto(offsetX + x * size, screenY);
+                    chunk.setBlockGenerated(x, y, new BasicBlock("stone", p));
                 }
             }
         }
 
-        // Orillas: cualquier bloque sólido con agua en un 3x3 a su alrededor -> sand
-        for (int arrayY = 0; arrayY < alto; arrayY++) {
-            for (int x = 0; x < ancho; x++) {
-                BasicBlock b = mundo[arrayY][x];
-                if (b == null) continue; // aire se queda
-                String id = b.getId();
-                if ("water".equals(id)) continue; // no sustituir agua
-                boolean nearWater = false;
-                for (int dy = -1; dy <= 1 && !nearWater; dy++) {
-                    int yy = arrayY + dy; if (yy < 0 || yy >= alto) continue;
-                    for (int dx = -1; dx <= 1; dx++) {
-                        if (dx == 0 && dy == 0) continue;
-                        int xx = x + dx; if (xx < 0 || xx >= ancho) continue;
-                        BasicBlock nb = mundo[yy][xx];
-                        if (nb != null && "water".equals(nb.getId())) { nearWater = true; break; }
+        // Capa superficial: 3 dirt y 1 grass
+        for (int x = 0; x < ancho; x++) {
+            int topWorldY = hTop[x];
+            int topChunkY = topWorldY - chunk.chunkY * alto;
+            if (topChunkY >= 0 && topChunkY < alto) {
+                // grass
+                double screenYTop = (worldHeight - 1 - topWorldY) * size;
+                Punto pTop = new Punto(offsetX + x * size, screenYTop);
+                chunk.setBlockGenerated(x, topChunkY, new BasicBlock("grass_block", pTop));
+            }
+            // dirt debajo
+            for (int i = 1; i <= 3; i++) {
+                int dirtWorldY = topWorldY - i;
+                int dirtChunkY = dirtWorldY - chunk.chunkY * alto;
+                if (dirtChunkY >= 0 && dirtChunkY < alto && dirtWorldY >= 0) {
+                    double screenYDirt = (worldHeight - 1 - dirtWorldY) * size;
+                    Punto pDirt = new Punto(offsetX + x * size, screenYDirt);
+                    chunk.setBlockGenerated(x, dirtChunkY, new BasicBlock("dirt", pDirt));
+                }
+            }
+        }
+
+        // Agua: rellenar huecos hasta WATER_LEVEL (solo si está vacío)
+        for (int y = 0; y < alto; y++) {
+            int worldY = chunk.chunkY * alto + y;
+            if (worldY <= WATER_LEVEL) {
+                for (int x = 0; x < ancho; x++) {
+                    if (chunk.getBlock(x, y) == null) {
+                        double screenY = (worldHeight - 1 - worldY) * size;
+                        Punto p = new Punto(offsetX + x * size, screenY);
+                        chunk.setBlockGenerated(x, y, new WaterBlock(p));
                     }
                 }
+            }
+        }
+    }
+
+    public static void generarFeaturesAdicionales(Chunk chunk, juego.mundo.Mundo mundo) {
+        final int ancho = Chunk.CHUNK_SIZE;
+        final int alto = Chunk.CHUNK_SIZE;
+        final int worldHeight = 256;
+        final double size = BasicBlock.getSize();
+
+        // Orillas de arena
+        for (int y = 0; y < alto; y++) {
+            for (int x = 0; x < ancho; x++) {
+                int worldX = chunk.chunkX * ancho + x;
+                int worldY = chunk.chunkY * alto + y;
+
+                BasicBlock b = mundo.getBlockAtTile(worldX, worldY);
+                if (b == null || "water".equals(b.getId()) || "sand".equals(b.getId())) continue;
+
+                boolean nearWater = false;
+                for (int dy = -1; dy <= 1 && !nearWater; dy++) {
+                    for (int dx = -1; dx <= 1; dx++) {
+                        if (dx == 0 && dy == 0) continue;
+                        BasicBlock nb = mundo.getBlockAtTile(worldX + dx, worldY + dy);
+                        if (nb != null && "water".equals(nb.getId())) {
+                            nearWater = true;
+                        }
+                    }
+                }
+
                 if (nearWater) {
-                    Punto p = new Punto(offsetX + x * size, offsetY + (alto - 1 - arrayY) * size);
-                    // No reemplazar agua; solo bloques sólidos
-                    if (!"water".equals(id)) mundo[arrayY][x] = new BasicBlock("sand", p);
+                    double screenY = (worldHeight - 1 - worldY) * size;
+                    double screenX = worldX * size;
+                    Punto p = new Punto(screenX, screenY);
+                    chunk.setBlockGenerated(x, y, new BasicBlock("sand", p));
                 }
             }
         }
-        return mundo;
     }
 }

@@ -2,6 +2,8 @@ package componentes;
 
 import juego.Jugador;
 import juego.bloques.BasicBlock;
+import juego.mundo.Mundo;
+import juego.mundo.Chunk;
 import programa.Panel;
 
 import java.awt.Graphics2D;
@@ -78,10 +80,14 @@ public class GameLoop implements Runnable {
             lastTime = inicio;
             if (dt > 0.1) dt = 0.1;
 
-            BasicBlock[][] mundo = panel.getMundo();
+            Mundo mundo = panel.getMundo();
+            if (mundo == null) continue;
+
+            mundo.update(jugador.getPosicion());
+
             var cercanos = MundoHelper.obtenerBloquesCercanosJugador(mundo, jugador, 2);
             jugador.update(input, dt, cercanos);
-            camara.update(jugador, mundo, dt);
+            camara.update(jugador, null, dt); // mundo grid no longer used
             int vpWWorldPx = (int)Math.round(panel.getAncho() / panel.getRenderScale());
             int vpHWorldPx = (int)Math.round(panel.getAlto() / panel.getRenderScale());
             MundoHelper.actualizarBloquesVisibles(bloquesVisibles, mundo, camara, vpWWorldPx, vpHWorldPx);
@@ -90,18 +96,23 @@ public class GameLoop implements Runnable {
                 Graphics2D g = panel.getOffscreenGraphics();
                 renderer.drawBackground(g, panel.getAncho(), panel.getAlto());
                 renderer.drawGame(g, bloquesVisibles, jugador, camara, editorMundo, panel.getRenderScale(), panel.getLightGrid(), panel.isLightDebugEnabled());
-                // Actualizar datos del HUD antes de dibujarlo (en bloques, Y invertida: 0 abajo)
+                if (input.isDebugChunkGrid()) {
+                    renderer.drawChunkGrid(g, camara, panel.getRenderScale());
+                }
+                // Actualizar datos del HUD antes de dibujarlo
                 double size = BasicBlock.getSize();
                 double tx = Math.floor(jugador.getX() / size);
-                int altoTiles = (panel.getMundo() != null) ? panel.getMundo().length : 0;
-                int tileTop = (int)Math.floor(jugador.getY() / size);
-                int yFromBottom = 0;
-                if (altoTiles > 0) {
-                    yFromBottom = altoTiles - 1 - tileTop;
-                    if (yFromBottom < 0) yFromBottom = 0;
-                    if (yFromBottom >= altoTiles) yFromBottom = altoTiles - 1;
-                }
-                hud.setPlayerPosition(tx, yFromBottom);
+                double screenYBlocks = Math.floor(jugador.getY() / size);
+                // Convertir Y de pantalla (origen arriba) a Y lógica (origen abajo)
+                final int WORLD_HEIGHT_BLOCKS = Mundo.WORLD_HEIGHT_BLOCKS;
+                int tyLogical = (int)(WORLD_HEIGHT_BLOCKS - 1 - screenYBlocks);
+                hud.setPlayerPosition(tx, tyLogical);
+                // Calcular chunk usando tamaño real y Y lógica (bottom-based)
+                int blockX = (int)Math.floor(jugador.getX() / size);
+                int blockY = tyLogical;
+                int playerChunkX = Math.floorDiv(blockX, Chunk.CHUNK_SIZE);
+                int playerChunkY = Math.floorDiv(blockY, Chunk.CHUNK_SIZE);
+                hud.setPlayerChunk(playerChunkX, playerChunkY);
                 hud.draw(g);
             }
             panel.present();

@@ -8,6 +8,7 @@ import java.awt.CardLayout;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.awt.*; // para Toolkit y Dimension
+import java.io.File;
 
 /**
  * Ventana principal del juego Mine2D.
@@ -57,14 +58,18 @@ public class Main extends JFrame {
         menuPanel = new MenuPanel(new MenuPanel.Listener() {
             @Override
             public void onPlayRequested() {
-                startGameWithLoadSaved();
+                startGame(true); // Cargar mundo existente
             }
             @Override
             public void onNewWorldRequested() {
-                int[] dims = promptWorldSize();
-                if (dims != null) {
-                    startGameNewWorld(dims[0], dims[1]);
+                // Borrar el mundo guardado para empezar de cero
+                File worldFile = new File("world.wgz");
+                if (worldFile.exists()) {
+                    if (!worldFile.delete()) {
+                        System.err.println("No se pudo borrar el mundo anterior.");
+                    }
                 }
+                startGame(false); // Iniciar sin cargar
             }
             @Override
             public void onExitRequested() {
@@ -106,7 +111,7 @@ public class Main extends JFrame {
         }
     }
 
-    private void startGameWithLoadSaved() {
+    private void startGame(boolean loadSaved) {
         if (!gameStarted) {
             gamePanel = new Panel(() -> {
                 // salida al menú desde pausa
@@ -119,56 +124,12 @@ public class Main extends JFrame {
             });
             root.add(gamePanel, CARD_GAME);
             showGame();
+            // El panel se encarga de cargar el mundo si existe en su método start()
+            // Si es un mundo nuevo, el fichero ya se ha borrado.
             gamePanel.start();
-            // Cargar partida guardada si existe
-            gamePanel.cargarPartidaGuardada();
             gameStarted = true;
         } else {
             showGame();
-            gamePanel.cargarPartidaGuardada();
-        }
-    }
-
-    private void startGameNewWorld(int anchoMundo, int altoMundo) {
-        if (!gameStarted) {
-            gamePanel = new Panel(() -> {
-                root.remove(gamePanel);
-                gamePanel = null;
-                gameStarted = false;
-                showMenu();
-                root.revalidate();
-                root.repaint();
-            });
-            // Configurar tamaño del mundo antes de iniciar
-            gamePanel.setWorldSize(anchoMundo, altoMundo);
-            root.add(gamePanel, CARD_GAME);
-            showGame();
-            gamePanel.start();
-            // No cargar partida guardada: es un mundo nuevo
-            gameStarted = true;
-        } else {
-            // Si ya hubiera un juego (caso raro al estar en menú), simplemente mostrar
-            showGame();
-        }
-    }
-
-    /** Dialoga con el usuario para obtener ancho (X) y alto (Y) del nuevo mundo. */
-    private int[] promptWorldSize() {
-        String sx = JOptionPane.showInputDialog(this, "Tamaño en X (ancho en bloques)", "1024");
-        if (sx == null) return null; // cancelado
-        String sy = JOptionPane.showInputDialog(this, "Tamaño en Y (alto en bloques)", "128");
-        if (sy == null) return null; // cancelado
-        try {
-            int w = Integer.parseInt(sx.trim());
-            int h = Integer.parseInt(sy.trim());
-            if (w <= 0 || h <= 0) throw new NumberFormatException("Valores deben ser > 0");
-            // Opcional: límites razonables para evitar cuelgues
-            if (w > 10000) w = 10000;
-            if (h > 2048) h = 2048;
-            return new int[]{ w, h };
-        } catch (NumberFormatException ex) {
-            JOptionPane.showMessageDialog(this, "Valores inválidos. Introduce enteros positivos.", "Error", JOptionPane.ERROR_MESSAGE);
-            return null;
         }
     }
 

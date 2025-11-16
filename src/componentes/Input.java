@@ -13,6 +13,9 @@ public class Input {
     private volatile boolean key_a;
     private volatile boolean key_d;
     private volatile boolean key_space;
+    private volatile boolean key_shift;
+    private volatile boolean noclipActive;
+    private volatile boolean debugChunkGrid;
 
     // Latch para detectar el flanco de pulsación de SPACE (thread-safe)
     private final AtomicBoolean spacePressedOnce = new AtomicBoolean(false);
@@ -45,6 +48,34 @@ public class Input {
     /** Actualiza directamente el estado mantenido de SPACE. */
     public void setKeySpace(boolean key_space) {
         this.key_space = key_space;
+    }
+
+    /** Indica si la tecla SHIFT está actualmente presionada. */
+    public boolean isKeyShift() {
+        return key_shift;
+    }
+
+    /** Actualiza el estado de la tecla SHIFT. */
+    public void setKeyShift(boolean key_shift) {
+        this.key_shift = key_shift;
+    }
+
+    /** Indica si el modo noclip está activo. */
+    public boolean isNoclipActive() {
+        return noclipActive;
+    }
+
+    /** Cambia el estado del modo noclip. */
+    public void toggleNoclip() {
+        noclipActive = !noclipActive;
+    }
+
+    public boolean isDebugChunkGrid() {
+        return debugChunkGrid;
+    }
+
+    public void toggleDebugChunkGrid() {
+        debugChunkGrid = !debugChunkGrid;
     }
 
     // --- Nuevos helpers para SPACE ---

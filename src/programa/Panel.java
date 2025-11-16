@@ -1,16 +1,20 @@
 package programa;
 
-import javax.swing.JComponent;
-import java.awt.*;
-import java.awt.image.BufferedImage;
-import java.io.File;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
-
 import componentes.*; // importar componentes refactorizados
+import componentes.Renderer;
 import juego.Jugador;
 import juego.bloques.BasicBlock;
+import juego.mundo.Chunk;
+import juego.mundo.ChunkIOManager;
+import juego.mundo.Mundo;
+import programa.Main;
+import programa.PauseMenuPanel;
+
+import javax.swing.*;
+import java.awt.*;
+import java.awt.image.BufferedImage;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Superficie principal de renderizado del juego.
@@ -21,7 +25,6 @@ import juego.bloques.BasicBlock;
  * - Delegar el bucle de juego a {@link GameLoop} y el input a {@link InputController}.</p>
  */
 public class Panel extends JComponent {
-    private static final int TAM_BLOQUE = 64;
     private int ancho;
     private int alto;
     private Thread gameThread;
@@ -32,7 +35,8 @@ public class Panel extends JComponent {
     private Input input;
     private InputController inputController;
     private Jugador jugador;
-    private volatile BasicBlock[][] mundo;
+    private Mundo mundo;
+    private ChunkIOManager chunkIOManager;
     private volatile Lighting.LightGrid lightGrid;
     private final List<BasicBlock> bloquesVisibles = new ArrayList<>();
     private Camara camara;
@@ -40,14 +44,6 @@ public class Panel extends JComponent {
     private EditorMundo editorMundo; // editor
     private Renderer renderer;
     private GameLoop loop;
-
-    // Tamaño del mundo configurable
-    private static final int DEFAULT_ANCHO_MUNDO = 1024;
-    private static final int DEFAULT_ALTO_MUNDO = 128;
-    private int worldWidth = DEFAULT_ANCHO_MUNDO;
-    private int worldHeight = DEFAULT_ALTO_MUNDO;
-
-    private static final File DEBUG_WORLD_FILE = new File("world.wgz");
 
     private final GameState gameState = new GameState();
 
@@ -58,17 +54,6 @@ public class Panel extends JComponent {
     private volatile boolean vsyncEnabled = true; // limitar FPS (VSync simulado)
     private volatile double renderScale = 1.0; // factor de escala de mundo -> pantalla
     private volatile boolean debugLight = false; // mostrar números de luz en bloques
-
-    /** Permite configurar el tamaño del mundo a generar al iniciar nueva partida. Llamar antes de start(). */
-    public void setWorldSize(int width, int height) {
-        // Forzar mínimos requeridos
-        int w = width > 0 ? width : 0;
-        int h = height > 0 ? height : 0;
-        if (w < 256) w = 256;
-        if (h < 128) h = 128;
-        this.worldWidth = w;
-        this.worldHeight = h;
-    }
 
     public double getRenderScale() { return renderScale; }
 
@@ -87,8 +72,6 @@ public class Panel extends JComponent {
         graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
         initGame();
-        // Recomputar iluminación inicial
-        recomputeLighting();
         setupPauseMenu();
         setupKeyBindings();
         input = new Input();
@@ -110,22 +93,41 @@ public class Panel extends JComponent {
         }
         if (editorMundo != null) editorMundo.stop();
         if (inputController != null) inputController.uninstall();
+        if (mundo != null) mundo.close();
     }
 
     private void initGame(){
+        long seed = 12345L; // Or load from metadata
+        mundo = new Mundo(seed);
+        chunkIOManager = new ChunkIOManager();
+
         jugador = new Jugador();
-        double startX = (double)(TAM_BLOQUE * worldWidth) / 2;
-        // Generar mundo antes de colocar al jugador para poder buscar el suelo
-        mundo = GeneradorMundo.generar(worldWidth, worldHeight, 0, 0);
-        // Colocar al jugador justo sobre el bloque más alto (suelo) bajo startX
-        double spawnY = computeGroundSpawnY(mundo, startX) - jugador.getAltoPx();
-        if (Double.isNaN(spawnY)) spawnY = 0; // fallback defensivo
-        jugador.colocar(new tipos.Punto(startX, spawnY));
+        tipos.Punto spawnPoint = chunkIOManager.loadWorld(mundo);
+
+        // Spawn por defecto en X=0
+        double startX = 0;
+
+        if (spawnPoint.x() == 0 && spawnPoint.y() == 0) {
+            // Mundo nuevo: precargar un área 5x5 de chunks para evitar mundo vacío
+            int worldBlockX = (int)Math.floor(startX / BasicBlock.getSize());
+            int spawnChunkX = worldBlockX / Chunk.CHUNK_SIZE;
+            for (int cx = spawnChunkX - 2; cx <= spawnChunkX + 2; cx++) {
+                for (int cy = 0; cy <= 4; cy++) { // cargar algunas alturas iniciales
+                    mundo.ensureChunkLoadedSync(cx, cy);
+                }
+            }
+
+            double spawnY = computeGroundSpawnY(startX) - jugador.getAltoPx();
+            if (Double.isNaN(spawnY)) spawnY = 0; // fallback defensivo
+            spawnPoint = new tipos.Punto(startX, spawnY);
+        }
+        jugador.colocar(spawnPoint);
+
         // La cámara debe usar el viewport en píxeles de mundo (pantalla dividida por escala)
         int vpWWorldPx = (int)Math.round(ancho / renderScale);
         int vpHWorldPx = (int)Math.round(alto / renderScale);
         camara = new Camara(vpWWorldPx, vpHWorldPx);
-        camara.update(jugador, mundo, 0);
+        camara.update(jugador, null, 0); // mundo is not a grid anymore
         hud = new HudDebug();
         // Calcular visibles con dimensiones del viewport en mundo
         MundoHelper.actualizarBloquesVisibles(bloquesVisibles, mundo, camara, vpWWorldPx, vpHWorldPx);
@@ -140,82 +142,45 @@ public class Panel extends JComponent {
     }
 
     private void recomputeLighting() {
-        this.lightGrid = Lighting.computeLightGrid(this.mundo);
+        // This should be handled inside Mundo now, perhaps triggered by block changes.
+        // For now, let's leave it empty.
     }
 
     /** Devuelve la coordenada Y (en píxeles) de la parte superior del bloque más alto en la columna de xPx.
      * Si no hay bloques en esa columna, devuelve 0. */
-    private double computeGroundSpawnY(BasicBlock[][] grid, double xPx) {
-        if (grid == null || grid.length == 0 || grid[0].length == 0) return 0;
-        int anchoTiles = grid[0].length;
-        int altoTiles = grid.length;
-        double size = BasicBlock.getSize();
-        int tileX = (int)Math.floor(xPx / size);
-        if (tileX < 0) tileX = 0; else if (tileX >= anchoTiles) tileX = anchoTiles - 1;
-        // Buscar desde arriba hacia abajo el primer bloque no nulo (el "suelo" visible)
-        for (int arrayY = altoTiles - 1; arrayY >= 0; arrayY--) {
-            BasicBlock b = grid[arrayY][tileX];
-            if (b != null) {
-                return b.getBounds().getY(); // top del bloque
+    private double computeGroundSpawnY(double xPx) {
+        int worldX = (int) Math.floor(xPx / BasicBlock.getSize());
+        int chunkX = worldX / Chunk.CHUNK_SIZE;
+        int blockXInChunk = worldX % Chunk.CHUNK_SIZE;
+
+        // Buscar desde arriba (worldHeight-1) hacia abajo (0) en términos lógicos
+        final int worldHeight = 256; // debe coincidir con GeneradorMundo
+
+        for (int logicalY = worldHeight - 1; logicalY >= 0; logicalY--) {
+            int chunkY = logicalY / Chunk.CHUNK_SIZE;
+            int blockYInChunk = logicalY % Chunk.CHUNK_SIZE;
+            Chunk chunk = mundo.getChunk(chunkX, chunkY);
+            if (chunk == null) continue;
+            if (chunk.getBlock(blockXInChunk, blockYInChunk) != null) {
+                // Convertir altura lógica (desde el fondo) a Y de pantalla usando misma fórmula que GeneradorMundo
+                double screenY = (worldHeight - 1 - logicalY) * BasicBlock.getSize();
+                return screenY;
             }
         }
-        return 0; // columna vacía
+        return 0; // fallback
     }
 
     /** Guardar estado del mundo a archivo. */
     private void saveWorld() {
-        try {
-            WorldIO.saveCompressed(DEBUG_WORLD_FILE, mundo, new tipos.Punto(jugador.getX(), jugador.getY()));
-            System.out.println("[INFO] Mundo guardado en " + DEBUG_WORLD_FILE.getAbsolutePath());
-        } catch (IOException e) {
-            System.err.println("[ERROR] Error guardando el mundo: " + e.getMessage());
-        }
-    }
-
-    /** Cargar estado del mundo desde archivo. */
-    private void loadWorld() {
-        try {
-            if (!DEBUG_WORLD_FILE.exists()) {
-                System.out.println("[INFO] Archivo de mundo no existe: " + DEBUG_WORLD_FILE.getAbsolutePath());
-                return;
-            }
-            WorldData data = WorldIO.loadCompressedWithPlayer(DEBUG_WORLD_FILE);
-            BasicBlock[][] cargado = data.mundo();
-            if (cargado.length == 0) {
-                System.out.println("[INFO] Mundo cargado vacío.");
-                return;
-            }
-            mundo = cargado;
-            if (editorMundo != null) editorMundo.setMundo(mundo);
-            if (data.jugadorPos() != null) jugador.colocar(data.jugadorPos());
-            camara.update(jugador, mundo, 0);
-            // Recalcular iluminación tras cargar
-            recomputeLighting();
-            System.out.println("[INFO] Mundo cargado: " + mundo[0].length + "x" + mundo.length);
-        } catch (IOException e) {
-            System.err.println("[ERROR] Error cargando el mundo: " + e.getMessage());
+        if (mundo != null && chunkIOManager != null) {
+            chunkIOManager.saveWorld(mundo, jugador.getPosicion());
+            System.out.println("[INFO] Mundo guardado.");
         }
     }
 
     /** Carga la partida guardada si existe (world.wgz) sin mensajes de depuración excesivos. */
     public void cargarPartidaGuardada() {
-        if (!DEBUG_WORLD_FILE.exists()) return; // nada que cargar
-        try {
-            WorldData data = WorldIO.loadCompressedWithPlayer(DEBUG_WORLD_FILE);
-            BasicBlock[][] cargado = data.mundo();
-            if (cargado.length == 0) return;
-            mundo = cargado;
-            if (editorMundo != null) editorMundo.setMundo(mundo);
-            if (data.jugadorPos() != null) jugador.colocar(data.jugadorPos());
-            camara.update(jugador, mundo, 0);
-            int vpWWorldPx = (int)Math.round(ancho / renderScale);
-            int vpHWorldPx = (int)Math.round(alto / renderScale);
-            MundoHelper.actualizarBloquesVisibles(bloquesVisibles, mundo, camara, vpWWorldPx, vpHWorldPx);
-            // Recalcular iluminación
-            recomputeLighting();
-        } catch (IOException e) {
-            System.err.println("Error cargando partida guardada: " + e.getMessage());
-        }
+        // This is now handled in initGame()
     }
 
     @Override
@@ -264,31 +229,28 @@ public class Panel extends JComponent {
         getActionMap().put("togglePause", new javax.swing.AbstractAction() { @Override public void actionPerformed(java.awt.event.ActionEvent e) { togglePause(); }});
         // Toggle debug de luz con F5
         getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_F5,0),"toggleLightDebug");
-        getActionMap().put("toggleLightDebug", new javax.swing.AbstractAction() { @Override public void actionPerformed(java.awt.event.ActionEvent e) { debugLight = !debugLight; repaint(); }});
+        getActionMap().put("toggleLightDebug", new javax.swing.AbstractAction() { @Override public void actionPerformed(java.awt.event.ActionEvent e) {
+            boolean current = isLightDebugEnabled();
+            debugLight = !current;
+            repaint();
+        }});
     }
-    private void togglePause() { if (!gameState.isPaused()) pauseGame(); else resumeGame(); }
-    public boolean isPaused() { return gameState.isPaused(); }
+    private void togglePause() { if (gameState.isPaused()) resumeGame(); else pauseGame(); }
     public void pauseGame() { gameState.pause(); if(pauseMenu!=null){ pauseMenu.setVisible(true); pauseMenu.requestFocusInWindow(); } }
     public void resumeGame() { gameState.resume(); if(pauseMenu!=null){ pauseMenu.setVisible(false); requestFocusInWindow(); } }
     private void exitToMenu() { stop(); if (listener != null) listener.onExitToMenuRequested(); }
-    public void saveGame() { saveWorld(); }
     @Override public void doLayout() { super.doLayout(); centerPauseMenu(); }
 
     // Getters
     public int getAncho(){ return ancho; }
     public int getAlto(){ return alto; }
     public Graphics2D getOffscreenGraphics(){ return graphics; }
-    public Input getInput(){ return input; }
-    public BasicBlock[][] getMundo(){ return mundo; }
-    public void setMundo(BasicBlock[][] nuevo){ this.mundo = nuevo; }
-    public boolean isVsyncEnabled() { return vsyncEnabled; }
+    public Mundo getMundo(){ return mundo; }
+    public void setMundo(Mundo nuevo){ this.mundo = nuevo; }
     public void setVsyncEnabled(boolean enabled) { this.vsyncEnabled = enabled; }
     public Lighting.LightGrid getLightGrid() { return lightGrid; }
     public boolean isLightDebugEnabled() { return debugLight; }
 
-    public Panel() {
-        this(null);
-    }
     public Panel(Listener listener) {
         this.listener = listener;
     }
