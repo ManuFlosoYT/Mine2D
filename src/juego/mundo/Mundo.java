@@ -208,6 +208,7 @@ public class Mundo {
         if (loaded == null) {
             loaded = new Chunk(chunkX, chunkY);
             GeneradorMundo.generarChunk(loaded, seed);
+            loaded.markDirty();
             if (newChunks != null) {
                 newChunks.add(loaded);
             }

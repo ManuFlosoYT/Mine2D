@@ -34,6 +34,10 @@ public class Chunk {
         needsSaving = true;
     }
 
+    public void markDirty() {
+        needsSaving = true;
+    }
+
     // Non-dirty setter used by world generation/loading to avoid unnecessary saves on unload
     public void setBlockGenerated(int x, int y, BasicBlock block) {
         if (x < 0 || x >= CHUNK_SIZE || y < 0 || y >= CHUNK_SIZE) {
