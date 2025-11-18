@@ -1,6 +1,8 @@
 package componentes;
 
 import juego.bloques.BasicBlock;
+import juego.bloques.BedrockBlock;
+import juego.bloques.BlockType;
 import juego.bloques.WaterBlock;
 import juego.mundo.Chunk;
 import tipos.Punto;
@@ -65,9 +67,7 @@ public class GeneradorMundo {
         final int worldHeight = 256;
 
         final double size = BasicBlock.getSize();
-        // Offset en coordenadas de mundo (bloques) para este chunk
         double offsetX = chunk.chunkX * ancho * size;
-        double offsetY = chunk.chunkY * alto * size;
 
         // Perfil base de terreno (altura medida desde el fondo, Y=0 abajo)
         double baseFrac = (double) ALTURA_GEN_MEDIA / worldHeight;
@@ -119,10 +119,16 @@ public class GeneradorMundo {
             if (stoneMax < 0) stoneMax = -1; // si top <4 no hay piedra superficial
             for (int y = 0; y < alto; y++) {
                 int worldY = chunk.chunkY * alto + y;
+                if (worldY < 0) {
+                    continue; // por debajo de bedrock todo queda vacío
+                }
+                if (worldY == 0) {
+                    continue; // capa base de bedrock
+                }
                 if (worldY <= stoneMax) {
                     double screenY = (worldHeight - 1 - worldY) * size;
                     Punto p = new Punto(offsetX + x * size, screenY);
-                    chunk.setBlockGenerated(x, y, new BasicBlock("stone", p));
+                    chunk.setBlockGenerated(x, y, new BasicBlock(BlockType.STONE, p));
                 }
             }
         }
@@ -135,7 +141,7 @@ public class GeneradorMundo {
                 // grass
                 double screenYTop = (worldHeight - 1 - topWorldY) * size;
                 Punto pTop = new Punto(offsetX + x * size, screenYTop);
-                chunk.setBlockGenerated(x, topChunkY, new BasicBlock("grass_block", pTop));
+                chunk.setBlockGenerated(x, topChunkY, new BasicBlock(BlockType.GRASS_BLOCK, pTop));
             }
             // dirt debajo
             for (int i = 1; i <= 3; i++) {
@@ -144,7 +150,7 @@ public class GeneradorMundo {
                 if (dirtChunkY >= 0 && dirtChunkY < alto && dirtWorldY >= 0) {
                     double screenYDirt = (worldHeight - 1 - dirtWorldY) * size;
                     Punto pDirt = new Punto(offsetX + x * size, screenYDirt);
-                    chunk.setBlockGenerated(x, dirtChunkY, new BasicBlock("dirt", pDirt));
+                    chunk.setBlockGenerated(x, dirtChunkY, new BasicBlock(BlockType.DIRT, pDirt));
                 }
             }
         }
@@ -152,6 +158,17 @@ public class GeneradorMundo {
         // Agua: rellenar huecos hasta WATER_LEVEL (solo si está vacío)
         for (int y = 0; y < alto; y++) {
             int worldY = chunk.chunkY * alto + y;
+            if (worldY < 0) {
+                continue; // espacio vacío bajo bedrock
+            }
+            if (worldY == 0) {
+                for (int x = 0; x < ancho; x++) {
+                    double screenY = (worldHeight - 1 - worldY) * size;
+                    Punto p = new Punto(offsetX + x * size, screenY);
+                    chunk.setBlockGenerated(x, y, new BedrockBlock(p));
+                }
+                continue;
+            }
             if (worldY <= WATER_LEVEL) {
                 for (int x = 0; x < ancho; x++) {
                     if (chunk.getBlock(x, y) == null) {
@@ -194,7 +211,7 @@ public class GeneradorMundo {
                     double screenY = (worldHeight - 1 - worldY) * size;
                     double screenX = worldX * size;
                     Punto p = new Punto(screenX, screenY);
-                    chunk.setBlockGenerated(x, y, new BasicBlock("sand", p));
+                    chunk.setBlockGenerated(x, y, new BasicBlock(BlockType.SAND, p));
                 }
             }
         }

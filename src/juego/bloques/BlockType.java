@@ -9,6 +9,7 @@ public enum BlockType {
     SAND("sand", 0.4),
     GRASS_BLOCK("grass_block", 0.6),
     WATER("water", 999.0),
+    BEDROCK("bedrock", Double.POSITIVE_INFINITY),
     UNKNOWN("unknown", 1.0);
 
     private final String id;

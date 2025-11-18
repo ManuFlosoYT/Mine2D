@@ -1,6 +1,7 @@
 package juego.mundo;
 
 import juego.bloques.BasicBlock;
+import juego.bloques.BedrockBlock;
 import juego.bloques.WaterBlock;
 import tipos.Punto;
 
@@ -290,6 +291,8 @@ public class ChunkIOManager {
         Punto pos = new Punto(blockWorldX, blockWorldY);
         if ("water".equals(blockId)) {
             chunk.setBlockGenerated(localX, localY, new WaterBlock(pos));
+        } else if ("bedrock".equals(blockId)) {
+            chunk.setBlockGenerated(localX, localY, new BedrockBlock(pos));
         } else {
             chunk.setBlockGenerated(localX, localY, new BasicBlock(blockId, pos));
         }
