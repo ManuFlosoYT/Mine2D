@@ -5,6 +5,7 @@ import juego.bloques.WaterBlock;
 import tipos.Punto;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -92,8 +93,9 @@ public class ChunkIOManager {
             while ((entry = zis.getNextEntry()) != null) {
                 if (entryName.equals(entry.getName())) {
                     Chunk chunk = new Chunk(chunkX, chunkY);
-                    DataInputStream dis = new DataInputStream(zis);
-                    readChunkData(dis, chunk, chunkX, chunkY);
+                    byte[] rawData = zis.readAllBytes();
+                    readChunkData(new String(rawData, StandardCharsets.UTF_8), chunk, chunkX, chunkY);
+                    zis.closeEntry();
                     return chunk;
                 }
                 zis.closeEntry();
@@ -164,14 +166,8 @@ public class ChunkIOManager {
     }
 
     private byte[] serializeChunk(Chunk chunk) {
-        try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
-             DataOutputStream dos = new DataOutputStream(baos)) {
-            writeChunkData(dos, chunk);
-            dos.flush();
-            return baos.toByteArray();
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+        String encoded = encodeChunk(chunk);
+        return encoded.getBytes(StandardCharsets.UTF_8);
     }
 
     private ZipInputStream openZip() throws IOException {
@@ -190,38 +186,91 @@ public class ChunkIOManager {
         return "chunk_" + chunkX + "_" + chunkY + ".dat";
     }
 
-    private void writeChunkData(DataOutput dataOutput, Chunk chunk) throws IOException {
+    private String encodeChunk(Chunk chunk) {
+        StringBuilder builder = new StringBuilder();
+        String currentId = null;
+        int runLength = 0;
         for (int y = 0; y < Chunk.CHUNK_SIZE; y++) {
             for (int x = 0; x < Chunk.CHUNK_SIZE; x++) {
                 BasicBlock block = chunk.getBlock(x, y);
-                if (block == null) {
-                    dataOutput.writeUTF("air");
+                String blockId = (block == null) ? "air" : block.getId();
+                if (currentId == null) {
+                    currentId = blockId;
+                    runLength = 1;
+                } else if (currentId.equals(blockId)) {
+                    runLength++;
                 } else {
-                    dataOutput.writeUTF(block.getId());
+                    appendRun(builder, runLength, currentId);
+                    currentId = blockId;
+                    runLength = 1;
                 }
             }
         }
+        if (currentId != null) {
+            appendRun(builder, runLength, currentId);
+        }
+        return builder.toString();
     }
 
-    private void readChunkData(DataInputStream dataInput, Chunk chunk, int chunkX, int chunkY) throws IOException {
-        for (int y = 0; y < Chunk.CHUNK_SIZE; y++) {
-            for (int x = 0; x < Chunk.CHUNK_SIZE; x++) {
-                String blockId = dataInput.readUTF();
-                if (!"air".equals(blockId)) {
-                    double blockWorldX = (chunkX * Chunk.CHUNK_SIZE + x) * BasicBlock.getSize();
-                    int logicalY = chunkY * Chunk.CHUNK_SIZE + y;
-                    double blockWorldY = (Mundo.WORLD_HEIGHT_BLOCKS - 1 - logicalY) * BasicBlock.getSize();
-                    Punto pos = new Punto(blockWorldX, blockWorldY);
-                    if ("water".equals(blockId)) {
-                        chunk.setBlockGenerated(x, y, new WaterBlock(pos));
-                    } else {
-                        chunk.setBlockGenerated(x, y, new BasicBlock(blockId, pos));
-                    }
-                } else {
-                    chunk.setBlockGenerated(x, y, null);
+    private void appendRun(StringBuilder builder, int count, String blockId) {
+        if (builder.length() > 0) {
+            builder.append('\n');
+        }
+        builder.append(count).append('*').append(blockId);
+    }
+
+    private void readChunkData(String encodedData, Chunk chunk, int chunkX, int chunkY) throws IOException {
+        if (encodedData == null || encodedData.isEmpty()) {
+            throw new IOException("Datos de chunk vacíos");
+        }
+        String[] runs = encodedData.split("\n");
+        final int totalBlocks = Chunk.CHUNK_SIZE * Chunk.CHUNK_SIZE;
+        int index = 0;
+        for (String rawRun : runs) {
+            String run = rawRun.trim();
+            if (run.isEmpty()) {
+                continue;
+            }
+            int separator = run.indexOf('*');
+            if (separator <= 0 || separator == run.length() - 1) {
+                throw new IOException("Formato de run inválido: " + run);
+            }
+            int count;
+            try {
+                count = Integer.parseInt(run.substring(0, separator));
+            } catch (NumberFormatException e) {
+                throw new IOException("Conteo inválido en run: " + run, e);
+            }
+            String blockId = run.substring(separator + 1);
+            for (int i = 0; i < count; i++) {
+                if (index >= totalBlocks) {
+                    throw new IOException("Chunk con más bloques de los esperados (" + totalBlocks + ")");
                 }
+                int y = index / Chunk.CHUNK_SIZE;
+                int x = index % Chunk.CHUNK_SIZE;
+                placeBlockFromId(chunk, x, y, chunkX, chunkY, blockId);
+                index++;
             }
         }
+        if (index != totalBlocks) {
+            throw new IOException("Chunk incompleto. Esperados " + totalBlocks + " bloques, obtenidos " + index);
+        }
         chunk.saved();
+    }
+
+    private void placeBlockFromId(Chunk chunk, int localX, int localY, int chunkX, int chunkY, String blockId) {
+        if ("air".equals(blockId)) {
+            chunk.setBlockGenerated(localX, localY, null);
+            return;
+        }
+        double blockWorldX = (chunkX * Chunk.CHUNK_SIZE + localX) * BasicBlock.getSize();
+        int logicalY = chunkY * Chunk.CHUNK_SIZE + localY;
+        double blockWorldY = (Mundo.WORLD_HEIGHT_BLOCKS - 1 - logicalY) * BasicBlock.getSize();
+        Punto pos = new Punto(blockWorldX, blockWorldY);
+        if ("water".equals(blockId)) {
+            chunk.setBlockGenerated(localX, localY, new WaterBlock(pos));
+        } else {
+            chunk.setBlockGenerated(localX, localY, new BasicBlock(blockId, pos));
+        }
     }
 }
