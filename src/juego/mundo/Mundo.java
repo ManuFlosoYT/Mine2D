@@ -5,7 +5,12 @@ import juego.bloques.BasicBlock;
 import tipos.Punto;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class Mundo {
     public static final int WORLD_HEIGHT_BLOCKS = 256; // altura lógica total
@@ -13,12 +18,28 @@ public class Mundo {
     private static final int LOAD_RADIUS = 3;
 
     private final Map<String, Chunk> loadedChunks = new HashMap<>();
+    private final Map<String, CompletableFuture<Chunk>> pendingChunkLoads = new ConcurrentHashMap<>();
+    private final ConcurrentLinkedQueue<ChunkLoadResult> completedChunkLoads = new ConcurrentLinkedQueue<>();
     private final long seed;
     private final ChunkIOManager chunkIOManager;
 
     // Cache del último chunk del jugador para evitar trabajo redundante por frame
     private int lastCenterChunkX = Integer.MIN_VALUE;
     private int lastCenterChunkY = Integer.MIN_VALUE;
+
+    private static final class ChunkLoadResult {
+        final String key;
+        final int chunkX;
+        final int chunkY;
+        final Chunk chunk;
+
+        ChunkLoadResult(String key, int chunkX, int chunkY, Chunk chunk) {
+            this.key = key;
+            this.chunkX = chunkX;
+            this.chunkY = chunkY;
+            this.chunk = chunk;
+        }
+    }
 
     public Mundo(long seed) {
         this.seed = seed;
@@ -101,6 +122,8 @@ public class Mundo {
     }
 
     public void update(Punto playerPosition) {
+        Set<Chunk> newlyReadyChunks = processCompletedChunkLoads();
+
         // playerPosition.y() está en píxeles top-based de pantalla. Convertir a índice de bloque bottom-based.
         int playerTileYTop = (int) Math.floor(playerPosition.y() / BasicBlock.getSize());
         int playerBlockY = (WORLD_HEIGHT_BLOCKS - 1) - playerTileYTop;
@@ -109,12 +132,14 @@ public class Mundo {
         int playerChunkX = floorDiv(playerBlockX, Chunk.CHUNK_SIZE);
         int playerChunkY = floorDiv(playerBlockY, Chunk.CHUNK_SIZE);
 
-        // Si seguimos en el mismo chunk central, no hagamos nada este frame
         if (playerChunkX == lastCenterChunkX && playerChunkY == lastCenterChunkY) {
+            if (!newlyReadyChunks.isEmpty()) {
+                regenerateChunkFeatures(newlyReadyChunks);
+            }
             return;
         }
 
-        updateChunksAround(playerChunkX, playerChunkY);
+        updateChunksAround(playerChunkX, playerChunkY, newlyReadyChunks);
     }
 
     public void forzarActualizacionInicial(Punto posicionJugador) {
@@ -124,7 +149,8 @@ public class Mundo {
         int blockY = (WORLD_HEIGHT_BLOCKS - 1) - tileYTop;
         int chunkX = floorDiv(blockX, Chunk.CHUNK_SIZE);
         int chunkY = floorDiv(blockY, Chunk.CHUNK_SIZE);
-        updateChunksAround(chunkX, chunkY);
+        Set<Chunk> ready = processCompletedChunkLoads();
+        updateChunksAround(chunkX, chunkY, ready);
         recargarChunksIniciales(chunkX, chunkY);
     }
 
@@ -145,15 +171,15 @@ public class Mundo {
         if (removed) {
             lastCenterChunkX = Integer.MIN_VALUE;
             lastCenterChunkY = Integer.MIN_VALUE;
-            updateChunksAround(centerChunkX, centerChunkY);
+            updateChunksAround(centerChunkX, centerChunkY, new HashSet<>());
         }
     }
 
-    private void updateChunksAround(int playerChunkX, int playerChunkY) {
+    private void updateChunksAround(int playerChunkX, int playerChunkY, Set<Chunk> preLoadedChunks) {
         lastCenterChunkX = playerChunkX;
         lastCenterChunkY = playerChunkY;
 
-        java.util.Set<Chunk> chunksToUpdateFeatures = new java.util.HashSet<>();
+        java.util.Set<Chunk> chunksToUpdateFeatures = new java.util.HashSet<>(preLoadedChunks);
 
         // Phase 1: Ensure all chunks in the configurable area exist and collect new ones.
         for (int cx = playerChunkX - LOAD_RADIUS; cx <= playerChunkX + LOAD_RADIUS; cx++) {
@@ -234,28 +260,35 @@ public class Mundo {
      */
     private void ensureChunkExists(int chunkX, int chunkY, java.util.Set<Chunk> newChunks) {
         String k = key(chunkX, chunkY);
-        if (loadedChunks.containsKey(k)) {
-            Chunk existing = loadedChunks.get(k);
-            if (existing != null && existing.needsFeaturesGeneration() && newChunks != null) {
+        Chunk existing = loadedChunks.get(k);
+        if (existing != null) {
+            if (existing.needsFeaturesGeneration() && newChunks != null) {
                 newChunks.add(existing);
             }
             return;
         }
-
-        Chunk loaded = chunkIOManager.loadChunk(chunkX, chunkY);
-        if (loaded == null) {
-            loaded = new Chunk(chunkX, chunkY);
-            GeneradorMundo.generarChunk(loaded, seed);
-            loaded.markDirty();
-        }
-        loadedChunks.put(k, loaded);
-        if (newChunks != null) {
-            newChunks.add(loaded);
-        }
+        requestChunkLoad(chunkX, chunkY);
     }
 
     public void ensureChunkLoadedSync(int chunkX, int chunkY) {
-        ensureChunkExists(chunkX, chunkY, null);
+        String k = key(chunkX, chunkY);
+        if (loadedChunks.containsKey(k)) return;
+        CompletableFuture<Chunk> pending = pendingChunkLoads.remove(k);
+        Chunk chunk = null;
+        if (pending != null) {
+            try {
+                chunk = pending.join();
+            } catch (Exception e) {
+                System.err.println("[LOAD] Error completando chunk pendiente (" + chunkX + "," + chunkY + "): " + e.getMessage());
+            }
+        }
+        if (chunk == null) {
+            chunk = chunkIOManager.loadChunk(chunkX, chunkY);
+        }
+        if (chunk == null) {
+            chunk = createGeneratedChunk(chunkX, chunkY);
+        }
+        loadedChunks.put(k, chunk);
     }
 
     public void saveAll() {
@@ -264,11 +297,51 @@ public class Mundo {
                 chunkIOManager.saveChunk(chunk);
             }
         }
+        chunkIOManager.flush();
     }
 
     public void close() {
         saveAll();
-        // ya no hay executor que cerrar
+        chunkIOManager.shutdown();
+    }
+
+    private void requestChunkLoad(int chunkX, int chunkY) {
+        String k = key(chunkX, chunkY);
+        pendingChunkLoads.computeIfAbsent(k, missing -> {
+            CompletableFuture<Chunk> future = chunkIOManager.loadChunkAsync(chunkX, chunkY);
+            future.whenComplete((chunk, throwable) -> {
+                if (throwable != null) {
+                    System.err.println("[LOAD] Error asíncrono chunk (" + chunkX + "," + chunkY + "): " + throwable.getMessage());
+                }
+                completedChunkLoads.add(new ChunkLoadResult(k, chunkX, chunkY, (throwable == null) ? chunk : null));
+            });
+            return future;
+        });
+    }
+
+    private Set<Chunk> processCompletedChunkLoads() {
+        Set<Chunk> ready = new HashSet<>();
+        ChunkLoadResult result;
+        while ((result = completedChunkLoads.poll()) != null) {
+            pendingChunkLoads.remove(result.key);
+            if (loadedChunks.containsKey(result.key)) {
+                continue;
+            }
+            Chunk chunk = result.chunk;
+            if (chunk == null) {
+                chunk = createGeneratedChunk(result.chunkX, result.chunkY);
+            }
+            loadedChunks.put(result.key, chunk);
+            ready.add(chunk);
+        }
+        return ready;
+    }
+
+    private Chunk createGeneratedChunk(int chunkX, int chunkY) {
+        Chunk chunk = new Chunk(chunkX, chunkY);
+        GeneradorMundo.generarChunk(chunk, seed);
+        chunk.markDirty();
+        return chunk;
     }
 
     public Map<String, Chunk> getChunksInRange(int minTileX, int minTileY, int maxTileX, int maxTileY) {
@@ -359,5 +432,9 @@ public class Mundo {
             }
         }
         return null; // No solid ground found in this column
+    }
+
+    private void updateChunksAround(int playerChunkX, int playerChunkY) {
+        updateChunksAround(playerChunkX, playerChunkY, java.util.Collections.emptySet());
     }
 }

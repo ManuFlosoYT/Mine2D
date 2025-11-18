@@ -11,6 +11,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
@@ -21,12 +25,31 @@ public class ChunkIOManager {
     private static final String META_FILE = "meta.dat";
     private static final String CHUNKS_DIR = "chunks/";
 
+    private final ExecutorService ioExecutor;
+
     private static final class ArchiveEntries {
         final Map<String, byte[]> metadataEntries = new LinkedHashMap<>();
         final Map<String, byte[]> chunkEntries = new LinkedHashMap<>();
     }
 
+    public ChunkIOManager() {
+        this.ioExecutor = Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "chunk-io-thread");
+            t.setDaemon(true);
+            return t;
+        });
+    }
+
     public void saveWorld(Mundo mundo, Punto playerPosition) {
+        CompletableFuture.runAsync(() -> saveWorldInternal(mundo, playerPosition), ioExecutor)
+                .exceptionally(ex -> {
+                    System.err.println("[SAVE] Error guardando mundo: " + ex.getMessage());
+                    return null;
+                })
+                .join();
+    }
+
+    private void saveWorldInternal(Mundo mundo, Punto playerPosition) {
         ArchiveEntries archive = readArchiveEntries();
         Map<String, byte[]> metadataEntries = archive.metadataEntries;
         Map<String, byte[]> chunkEntries = archive.chunkEntries;
@@ -45,47 +68,36 @@ public class ChunkIOManager {
 
     public void saveChunk(Chunk chunk) {
         if (chunk == null) return;
-        ArchiveEntries archive = readArchiveEntries();
-        archive.chunkEntries.put(entryName(chunk.chunkX, chunk.chunkY), serializeChunk(chunk));
+        byte[] serialized = serializeChunk(chunk);
+        final String entry = entryName(chunk.chunkX, chunk.chunkY);
         chunk.saved();
+        CompletableFuture.runAsync(() -> writeSingleChunk(entry, serialized), ioExecutor)
+                .exceptionally(ex -> {
+                    System.err.println("[SAVE] Error escribiendo chunk (" + chunk.chunkX + "," + chunk.chunkY + "): " + ex.getMessage());
+                    return null;
+                });
+    }
+
+    private void writeSingleChunk(String entryName, byte[] serializedChunk) {
+        ArchiveEntries archive = readArchiveEntries();
+        archive.chunkEntries.put(entryName, serializedChunk);
         writeArchive(archive.metadataEntries, archive.chunkEntries);
     }
 
-    public Punto loadWorld(Mundo mundo) {
-        Punto playerPosition = new Punto(0, 0);
-        Path worldPath = Paths.get(WORLD_FILE);
-        if (!Files.exists(worldPath)) {
-            System.out.println("[LOAD] No existe " + WORLD_FILE + ". Se creará un mundo nuevo.");
-            return mundo.encontrarSpawnSeguro(0);
-        }
-
-        System.out.println("[LOAD] Cargando " + WORLD_FILE + " ...");
-        try (ZipInputStream zis = new ZipInputStream(new FileInputStream(WORLD_FILE))) {
-            ZipEntry entry;
-            while ((entry = zis.getNextEntry()) != null) {
-                if (entry.getName().equals(PLAYER_FILE)) {
-                    System.out.println("[LOAD] Leyendo " + PLAYER_FILE + " ...");
-                    DataInputStream dis = new DataInputStream(zis);
-                    double x = dis.readDouble();
-                    double y = dis.readDouble();
-                    playerPosition = new Punto(x, y);
-                } else if (entry.getName().equals(META_FILE)) {
-                    System.out.println("[LOAD] Leyendo " + META_FILE + " ...");
-                    DataInputStream dis = new DataInputStream(zis);
-                    dis.readLong(); // seed
-                } else if (entry.getName().startsWith(CHUNKS_DIR)) {
-                    System.out.println("[LOAD] Encontrado chunk registrado: " + entry.getName());
-                }
-                zis.closeEntry();
-            }
-            System.out.println("[LOAD] Carga de metadatos completada. Posición jugador: (" + playerPosition.x() + ", " + playerPosition.y() + ")");
-        } catch (IOException e) {
-            System.err.println("[LOAD] Error cargando el mundo: " + e.getMessage());
-        }
-        return playerPosition;
+    public CompletableFuture<Chunk> loadChunkAsync(int chunkX, int chunkY) {
+        return CompletableFuture.supplyAsync(() -> loadChunkInternal(chunkX, chunkY), ioExecutor);
     }
 
     public Chunk loadChunk(int chunkX, int chunkY) {
+        try {
+            return loadChunkAsync(chunkX, chunkY).join();
+        } catch (CompletionException ex) {
+            System.err.println("[LOAD] Error cargando chunk (" + chunkX + "," + chunkY + "): " + ex.getCause().getMessage());
+            return null;
+        }
+    }
+
+    private Chunk loadChunkInternal(int chunkX, int chunkY) {
         String entryName = entryName(chunkX, chunkY);
         try (ZipInputStream zis = openZip()) {
             if (zis == null) return null;
@@ -104,6 +116,15 @@ public class ChunkIOManager {
             System.err.println("[LOAD] Error cargando chunk (" + chunkX + "," + chunkY + "): " + e.getMessage());
         }
         return null;
+    }
+
+    public void flush() {
+        CompletableFuture.runAsync(() -> {}, ioExecutor).join();
+    }
+
+    public void shutdown() {
+        flush();
+        ioExecutor.shutdown();
     }
 
     private ArchiveEntries readArchiveEntries() {
@@ -271,6 +292,66 @@ public class ChunkIOManager {
             chunk.setBlockGenerated(localX, localY, new WaterBlock(pos));
         } else {
             chunk.setBlockGenerated(localX, localY, new BasicBlock(blockId, pos));
+        }
+    }
+
+    public Punto loadWorld(Mundo mundo) {
+        Map<String, byte[]> metadataEntries = readMetadataOnly();
+        Punto spawn = new Punto(0, 0);
+        byte[] playerData = metadataEntries.get(PLAYER_FILE);
+        if (playerData != null) {
+            try {
+                spawn = deserializePlayerPosition(playerData);
+            } catch (UncheckedIOException e) {
+                System.err.println("[LOAD] Error leyendo posición del jugador: " + e.getMessage());
+            }
+        }
+        byte[] seedData = metadataEntries.get(META_FILE);
+        if (seedData != null && mundo != null) {
+            try {
+                long storedSeed = deserializeSeed(seedData);
+                if (mundo.getSeed() != storedSeed) {
+                    System.err.println("[LOAD] Advertencia: semilla guardada (" + storedSeed + ") difiere de la actual (" + mundo.getSeed() + ")");
+                }
+            } catch (UncheckedIOException e) {
+                System.err.println("[LOAD] Error leyendo semilla guardada: " + e.getMessage());
+            }
+        }
+        return spawn;
+    }
+
+    private Map<String, byte[]> readMetadataOnly() {
+        Map<String, byte[]> metadataEntries = new LinkedHashMap<>();
+        try (ZipInputStream zis = openZip()) {
+            if (zis == null) return metadataEntries;
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                if (!entry.getName().startsWith(CHUNKS_DIR)) {
+                    metadataEntries.put(entry.getName(), zis.readAllBytes());
+                }
+                zis.closeEntry();
+            }
+        } catch (IOException e) {
+            System.err.println("[LOAD] Error leyendo metadata del mundo: " + e.getMessage());
+        }
+        return metadataEntries;
+    }
+
+    private Punto deserializePlayerPosition(byte[] data) {
+        try (DataInputStream dis = new DataInputStream(new ByteArrayInputStream(data))) {
+            double x = dis.readDouble();
+            double y = dis.readDouble();
+            return new Punto(x, y);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private long deserializeSeed(byte[] data) {
+        try (DataInputStream dis = new DataInputStream(new ByteArrayInputStream(data))) {
+            return dis.readLong();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
         }
     }
 }
