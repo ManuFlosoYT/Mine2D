@@ -1,20 +1,17 @@
 package programa;
 
-import componentes.*; // importar componentes refactorizados
+import componentes.*;
 import componentes.Renderer;
+import java.awt.*;
+import java.awt.image.BufferedImage;
+import java.util.ArrayList;
+import java.util.List;
+import javax.swing.*;
 import juego.Jugador;
 import juego.bloques.BasicBlock;
 import juego.mundo.Chunk;
 import juego.mundo.ChunkIOManager;
 import juego.mundo.Mundo;
-import programa.Main;
-import programa.PauseMenuPanel;
-
-import javax.swing.*;
-import java.awt.*;
-import java.awt.image.BufferedImage;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Superficie principal de renderizado del juego.

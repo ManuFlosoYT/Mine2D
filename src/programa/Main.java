@@ -1,14 +1,11 @@
 package programa;
 
-import javax.swing.JFrame;
-import javax.swing.JPanel;
-import javax.swing.JOptionPane;
-import java.awt.BorderLayout;
-import java.awt.CardLayout;
+import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
-import java.awt.*; // para Toolkit y Dimension
 import java.io.File;
+import javax.swing.JFrame;
+import javax.swing.JPanel;
 
 /**
  * Ventana principal del juego Mine2D.
@@ -117,7 +114,6 @@ public class Main extends JFrame {
                 // salida al menú desde pausa
                 root.remove(gamePanel);
                 gamePanel = null;
-                gameStarted = false;
                 showMenu();
                 root.revalidate();
                 root.repaint();

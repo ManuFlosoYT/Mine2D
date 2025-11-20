@@ -1,7 +1,6 @@
 package componentes;
 
 import juego.Jugador;
-import juego.bloques.BasicBlock;
 import juego.mundo.Mundo;
 
 /**

@@ -1,12 +1,12 @@
 package componentes;
 
-import juego.Jugador;
-import juego.bloques.BasicBlock;
-import juego.mundo.Chunk;
-
 import java.awt.*;
 import java.awt.geom.AffineTransform;
 import java.util.List;
+import juego.Jugador;
+import juego.bloques.BasicBlock;
+import juego.bloques.BlockRenderer;
+import juego.mundo.Chunk;
 
 /**
  * Encapsula todo el dibujado de elementos del mundo y overlays de interacción.
@@ -16,6 +16,7 @@ import java.util.List;
  */
 public class Renderer {
     private static final Color COLOR_CIELO = new Color(135, 206, 235);
+    private final BlockRenderer blockRenderer = new BlockRenderer();
 
     /** Pinta el fondo del nivel. */
     public void drawBackground(Graphics2D g, int ancho, int alto) {
@@ -65,7 +66,7 @@ public class Renderer {
                     eff = lightGrid.getEffectiveLight(arrY, tileX);
                     brightness = getVisualBrightness(lightGrid, tileX, tileYTop);
                 }
-                b.drawTinted(g, brightness);
+                blockRenderer.draw(g, b, brightness);
                 if (debugLight && lightGrid != null && !lightGrid.isEmpty() &&
                         arrY >= 0 && arrY < lightGrid.getHeight() &&
                         tileX >= 0 && tileX < lightGrid.getWidth()) {
